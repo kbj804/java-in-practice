@@ -44,6 +44,21 @@ Eden이 가득 차면 Minor GC가 일어납니다.
 2. **동적 나이 판정:** 같은 나이 이하 객체를 모은 크기가 Survivor 공간의 절반(`TargetSurvivorRatio=50`)을 넘으면, JVM이 임계값을 그 나이로 낮춥니다. 그래서 15살이 안 됐어도 일찍 Old로 갈 수 있습니다.
 3. **Survivor가 넘치면:** to Survivor에 다 들어가지 않으면 남은 객체는 바로 Old로 갑니다(조기 승격). 원래 금방 죽을 객체가 Old에 쌓이면 Full GC가 잦아지는 원인이 됩니다.
 
+### 나이는 어디에 저장되나
+
+- 객체의 나이는 객체 헤더의 **mark word 안 4비트**에 저장됩니다. JDK 21 소스 [`markWord.hpp`](https://github.com/openjdk/jdk21u/blob/master/src/hotspot/share/oops/markWord.hpp)에 `age_bits = 4`, `max_age = age_mask`(= 15)로 정의돼 있습니다.
+- 그래서 나이는 **15에서 멈춥니다.** `incr_age()`는 나이가 이미 15면 더 올리지 않습니다.
+- Minor GC 때 나이가 임계값 이상이면 Survivor로 복사하는 대신 Old로 보냅니다. [실험 로그](#직접-확인-나이가-올라가고-old로-넘어가는-로그)에서 GC(18)에 나이 15였던 객체가 GC(19)에서 Old로 옮겨진 것이 이 동작입니다.
+- Old로 간 객체도 헤더의 나이 비트는 그대로 갖고 있습니다. Old에는 더 올라갈 곳이 없으니 그 값을 더 이상 쓰지 않을 뿐입니다.
+
+`MaxTenuringThreshold`의 허용 범위는 15까지가 아니라 **0~16**입니다(`java -XX:+PrintFlagsRanges -version`으로 확인).
+
+| 값 | 의미 |
+|---|---|
+| 0 | 살아남으면 바로 Old로 보냄. `-XX:+AlwaysTenure`가 이 값으로 설정함 |
+| 1~15 | 나이가 이 값에 닿으면 Old로 보냄. 기본값 15 |
+| 16 | 나이는 15에서 멈추므로 **절대 닿을 수 없음**. 나이로는 승격하지 않고, Survivor가 넘칠 때만 Old로 감. `-XX:+NeverTenure`가 이 값으로 설정함 |
+
 ## Full GC: 주방 전체 대청소
 
 Old가 가득 차면 Heap 전체를 청소합니다(mark-sweep-compact 계열). 살아 있는 객체를 표시하고, 죽은 것을 치우고, 빈틈 없이 한쪽으로 모읍니다. 보는 범위가 넓어서 **멈춤이 Minor GC보다 훨씬 깁니다**. 응답 시간이 튀는 서비스라면 먼저 Full GC 로그를 봅니다.
