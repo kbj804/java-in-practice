@@ -2,6 +2,10 @@
 
 [01. JVM은 어떻게 동작하나](01-how-jvm-works.md)의 ⑤ GC를 자세히 본 노트입니다. 주방 비유도 그대로 이어 갑니다.
 
+[![세대별 GC 그림](figures/generational-gc/gc-light.png)](https://kbj804.github.io/java-in-practice/study/jvm/figures/generational-gc/gc-light.html)
+
+그림을 누르면 움직이는 버전이 열립니다([다크 테마](https://kbj804.github.io/java-in-practice/study/jvm/figures/generational-gc/gc.html)). 왼쪽 배식대가 Eden, 가운데 작은 선반 두 개가 S0/S1, 오른쪽 큰 선반이 Old입니다. 접시에 쌓인 고리 수가 나이이고, 다이얼은 지금 임계값을 가리킵니다. 할당 → Minor GC → 카드 테이블 → 나이 먹기 → 승격 → Survivor 넘침 → 동적 임계값 → Old 가득 → Full GC 9단계가 돌아가며, 클릭이나 ← → 키, 1~9 숫자 키로 단계를 옮길 수 있습니다. 접시 하나는 같은 크기 객체 하나로 단순화했고, Full GC 멈춤 80ms는 설명용 숫자입니다(Minor GC 2ms는 아래 실험 로그 값).
+
 ## 왜 세대를 나누나
 
 대부분의 객체는 만들어지자마자 버려집니다. 요청 하나를 처리하며 만든 DTO, 문자열, 임시 리스트가 그렇습니다. 오래 사는 객체는 적습니다. 이것을 **약한 세대 가설(weak generational hypothesis)**이라고 합니다.
