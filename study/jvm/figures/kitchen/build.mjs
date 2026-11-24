@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { makeParts } from "./parts.mjs";
 import { DISHES, LINES, PHASES, THRESHOLD, DIAL_MAX, GANTRY, stateAt, readoutOf } from "./model.mjs";
+import { legendHtml, LEGEND_CSS } from "../legend.mjs";
 
 // Anatomy 스킬의 kit 을 쓴다: ANATOMY_HOME 이 없으면 ~/.claude/skills/anatomy.
 const SKILL = process.env.ANATOMY_HOME || join(homedir(), ".claude/skills/anatomy");
@@ -370,6 +371,24 @@ const STEPS = [
   ["JIT 컴파일", "다이얼(호출 횟수)이 임계값을 넘으면 그 메뉴를 밀키트(기계어)로 만들어 냉장 선반(코드 캐시)에 둡니다. 다음 주문은 카드를 읽지 않습니다."],
   ["GC", "주문서·재료통 어디와도 끈(참조)이 닿지 않는 접시를 청소 갠트리가 치웁니다. 그동안 요리사는 잠깐 멈춥니다(Stop-the-World)."],
 ];
+const LEGEND = [
+  ["printer", "카드 인쇄기", "javac", "레시피 원고(.java)를 표준 레시피 카드(.class)로 찍어 냅니다."],
+  ["shelf", "3단 카드 선반", "클래스 로더", "위층 본사 = Bootstrap, 가운데 지역 = Platform, 아래 지점 = Application."],
+  ["lift", "리프트", "부모 위임(parent delegation)", "카드를 찾을 때 꼭대기 층부터 물어보고 내려옵니다."],
+  ["drawers", "서랍장과 양념통", "Method Area", "클래스 정보·메서드 정보·상수를 두는 레시피 보관함."],
+  ["jars", "서랍장 위 재료 트레이", "static 필드", "준비 단계에서 비워 두고(0·null), 초기화 때 진짜 값이 들어갑니다."],
+  ["spike", "주문서 꽂이", "스레드의 JVM Stack", "요리사(스레드)마다 하나씩 있습니다."],
+  ["ticket", "주문서", "스택 프레임", "메서드를 부를 때마다 한 장 꽂히고, 끝나면 빠집니다."],
+  ["pointer", "레시피 카드 옆 작은 탭", "PC 레지스터", "지금 읽고 있는 바이트코드 줄."],
+  ["counter", "공용 조리대", "Heap", "모든 스레드가 함께 쓰는 객체 공간."],
+  ["dish", "접시", "객체", ""],
+  ["wire", "끈", "참조", "주문서(지역 변수)나 재료 트레이(static)에서 접시로 이어집니다."],
+  ["dial", "다이얼", "호출 횟수와 JIT 임계값", "바늘이 임계값을 넘으면 그 메서드를 컴파일합니다."],
+  ["fridge", "냉장 선반과 밀키트", "코드 캐시", "JIT 가 만든 기계어. 다음 호출은 카드를 읽지 않고 바로 씁니다."],
+  ["gantry", "청소 갠트리", "GC", "끈이 닿지 않는 접시를 치웁니다."],
+  ["beacon", "갠트리 위 표시등", "Stop-the-World", "켜진 동안 요리사(애플리케이션 스레드)가 멈춥니다."],
+];
+const legendBlock = legendHtml(LEGEND);
 const stepsHtml = `<ol class="jk-steps">${STEPS.map(([name, text], i) => `<li><button type="button" data-step="${i}"><span class="jk-n">${i + 1}</span><span><b>${name}</b> ${text}</span></button></li>`).join("")}</ol>`;
 const STEP_CSS = `<style>
 .jk-steps{list-style:none;margin:18px 0 0;padding:0;display:grid;gap:6px}
@@ -523,5 +542,5 @@ const body = k.plateHtml({
 });
 
 const name = theme === "light" ? "kitchen-light.html" : "kitchen.html";
-writeFileSync(join(HERE, name), k.pageHtml({ title: "JVM 주방", theme, body: STEP_CSS + body + stepsHtml, script: kitScript() + live, width: 720 }).replace('<html lang="en">', '<html lang="ko">'));
+writeFileSync(join(HERE, name), k.pageHtml({ title: "JVM 주방", theme, body: LEGEND_CSS + STEP_CSS + body + legendBlock + stepsHtml, script: kitScript() + live, width: 720 }).replace('<html lang="en">', '<html lang="ko">'));
 console.log("wrote", name);

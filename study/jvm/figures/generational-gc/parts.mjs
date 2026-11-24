@@ -12,10 +12,20 @@ export function makeParts(k, P, M) {
       S(k.cylinder(x, y, 2.6, z + 0.8, M.BOWL_TOP - 0.8, P, 24), { tone: "hi", crease: "lo", lit }),
       L(k.ring(x, y, 1.7, z + M.BOWL_TOP, P, 18), { tone: "faint" }),
     ];
+    return out.join("") + rings([x, y, z], age, lit);
+  }
+  // 나이 고리. faded 는 Old 로 승격된 접시: 나이 비트는 남아 있지만 더 세지 않으므로,
+  // 고리를 쌓지 않고 납작한 흐린 뚜껑 하나로 눌러 둔다(Old 선반이 촘촘해서 높은 고리 탑은 읽히지 않는다).
+  function rings([x, y, z], age, lit = false, faded = false) {
+    if (!age) return "";
+    if (faded) {
+      return `<g opacity=".55">${S(k.cylinder(x, y, 2.1, z + M.BOWL_TOP, M.RING_H, P, 20), { tone: "lo", crease: "lo" })}${D([at([x, y, z + M.BOWL_TOP + M.RING_H])], { size: 0.5, tone: "lo" })}</g>`;
+    }
+    const out = [];
     for (let i = 0; i < age; i++) {
       out.push(S(k.cylinder(x, y, 2.1, z + M.BOWL_TOP + i * M.RING_H, M.RING_H, P, 20), { tone: i % 5 === 4 ? "mid" : "hi", crease: "lo", lit: lit && i === age - 1 }));
     }
-    if (age) out.push(D([at([x, y, z + M.BOWL_TOP + age * M.RING_H])], { size: 0.5, tone: "hi" }));
+    out.push(D([at([x, y, z + M.BOWL_TOP + age * M.RING_H])], { size: 0.5, tone: "hi" }));
     return out.join("");
   }
 
@@ -96,5 +106,5 @@ export function makeParts(k, P, M) {
     ].join("");
   }
 
-  return { dish, stack, ticketAnchor, wire, needle, marker, gaugeZ, STATIONS, SPIKE_Y, WATCH, SPAN, GAUGE };
+  return { dish, rings, stack, ticketAnchor, wire, needle, marker, gaugeZ, STATIONS, SPIKE_Y, WATCH, SPAN, GAUGE };
 }

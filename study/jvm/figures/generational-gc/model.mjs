@@ -79,7 +79,7 @@ const SEED_DIES = 12;
 
 // ── 시뮬레이션 ──
 function simulate() {
-  const old = Array.from({ length: OLD_CAP }, (_, s) => (s < SEEDS ? { id: "s" + s, seed: true } : null));
+  const old = Array.from({ length: OLD_CAP }, (_, s) => (s < SEEDS ? { id: "s" + s, seed: true, age: MAX_AGE } : null));
   const surv = [[], []];
   let from = 0; // 지금 from 공간. 처음엔 둘 다 비어 있고 첫 GC 의 to 는 S0.
   let to = 0;
@@ -96,7 +96,7 @@ function simulate() {
       const go = (o, src) => {
         if (src.space !== "eden" && o.age >= threshold) {
           const s = old.indexOf(null);
-          old[s] = { id: o.id };
+          old[s] = { id: o.id, age: o.age };
           promoted++;
           moves.push({ id: o.id, src, dst: { space: "old", slot: s }, age: o.age, why: "age" });
         } else if (target.length < SURV_CAP) {
@@ -105,7 +105,7 @@ function simulate() {
           target.push(moved);
         } else {
           const s = old.indexOf(null);
-          old[s] = { id: o.id };
+          old[s] = { id: o.id, age: o.age + 1 };
           promoted++;
           moves.push({ id: o.id, src, dst: { space: "old", slot: s }, age: o.age + 1, why: "overflow" });
         }
@@ -254,18 +254,19 @@ export function stateAt(t) {
     p[2] += Math.sin(Math.PI * s) * (move.dst.space === "old" ? 34 : 26);
     const landed = s >= 1;
     if (landed && move.dst.space === "old") continue; // Old 접시는 정적 자리에서 보인다
-    const age = s > 0.5 ? (move.dst.space === "old" ? 0 : move.age) : move.src.space === "eden" ? 0 : move.age - 1;
+    const age = s > 0.5 ? move.age : move.src.space === "eden" ? 0 : move.dst.space === "old" && move.why === "age" ? move.age : move.age - 1;
     mobile.push({ id: move.id, at: p, age, presence: 1, lit: !landed || g < WIPE[1], hero: move.id === "H", flying: !landed, why: move.why });
   }
 
   // ── Old ── 자리마다 접시가 있는지, 압축 중이면 얼마나 밀렸는지.
-  const oldState = Array.from({ length: OLD_CAP }, () => ({ presence: 0, dim: 0, shift: [0, 0], lit: false }));
+  // age: 승격될 때의 나이. Old 에서는 더 세지 않아서 흐린 뚜껑 하나로 남겨 둔다(객체 헤더의 나이 비트는 그대로 있다).
+  const oldState = Array.from({ length: OLD_CAP }, () => ({ presence: 0, dim: 0, shift: [0, 0], lit: false, age: 0 }));
   const oldSrc = inGc ? step.before.old : base.old;
   oldSrc.forEach((o, s) => {
-    if (o) oldState[s].presence = 1;
+    if (o) { oldState[s].presence = 1; oldState[s].age = o.age || 0; }
   });
   if (inGc && step.gc.type === "minor") {
-    for (const { move, s } of moving) if (move.dst.space === "old" && s >= 1) { oldState[move.dst.slot].presence = 1; oldState[move.dst.slot].lit = true; }
+    for (const { move, s } of moving) if (move.dst.space === "old" && s >= 1) { oldState[move.dst.slot].presence = 1; oldState[move.dst.slot].lit = true; oldState[move.dst.slot].age = move.age; }
   }
   if (inGc && step.gc.type === "full") {
     const mark = ease((g - 0.1) / 0.18);
@@ -308,7 +309,7 @@ export function stateAt(t) {
     if (id === "H" && heroOld !== null) {
       const p = oldAt(heroOld);
       const cell = oldState[heroOld];
-      return [p[0] + cell.shift[0], p[1] + cell.shift[1], p[2] + BOWL_TOP];
+      return [p[0] + cell.shift[0], p[1] + cell.shift[1], p[2] + BOWL_TOP + (cell.age ? RING_H : 0)];
     }
     const i = eden.findIndex((cell) => cell.live === id && cell.presence > 0.5);
     if (i >= 0) return [...edenAt(i).slice(0, 2), COUNTER_TOP + BOWL_TOP];

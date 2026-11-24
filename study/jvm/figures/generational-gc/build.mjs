@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { makeParts } from "./parts.mjs";
 import * as M from "./model.mjs";
+import { legendHtml, LEGEND_CSS } from "../legend.mjs";
 
 // Anatomy 스킬의 kit 을 쓴다: ANATOMY_HOME 이 없으면 ~/.claude/skills/anatomy.
 const SKILL = process.env.ANATOMY_HOME || join(homedir(), ".claude/skills/anatomy");
@@ -264,7 +265,7 @@ const svg = k.figureSvg({
     rails(),
     `<g data-part="gantry-back">${upright(RAILS[0])}</g>`,
     oldCounter(),
-    ...Array.from({ length: M.OLD_CAP }, (_, s) => `<g data-part="old" data-i="${s}" style="opacity:0">${parts.dish(oldAt(s))}</g>`),
+    ...Array.from({ length: M.OLD_CAP }, (_, s) => `<g data-part="old" data-i="${s}" style="opacity:0">${parts.dish(oldAt(s))}<g data-part="oldrings"></g></g>`),
     board(),
     ...Array.from({ length: 10 }, (_, i) => `<g data-part="card" data-i="${i}">${card(i, 0)}</g>`),
     eden(),
@@ -295,6 +296,21 @@ const STEPS = [
   ["Old 가득", "승격이 계속되면 Old 가 찹니다. 다음 승격이 들어갈 자리가 없습니다(빨리 감기)."],
   ["Full GC", "힙 전체를 멈추고 오래 정리합니다: 끈이 닿는 접시 표시 → 끊긴 접시 정리 → 남은 접시를 앞으로 모으기(압축)."],
 ];
+const LEGEND = [
+  ["spike", "주문서 꽂이", "스레드의 Stack · GC Root", "여기서 끈을 따라 닿는 접시만 살아남습니다."],
+  ["wire", "끈", "참조", "주문서나 Old 접시에서 다른 접시로 이어집니다."],
+  ["eden", "왼쪽 배식대", "Eden", "새 객체가 처음 놓이는 곳. Minor GC 때 통째로 비웁니다."],
+  ["bump", "배식대 레일의 탭", "할당 위치(bump pointer)", "다음 접시가 놓일 칸을 가리키며 한 칸씩 밀려갑니다."],
+  ["survivors", "가운데 작은 선반 두 개", "Survivor S0 / S1", "번갈아 쓰고 하나는 늘 비어 있습니다. 이름표에 불이 들어온 쪽이 이번 GC 의 to."],
+  ["rings", "접시 위 고리", "나이(age)", "Minor GC 에서 살아남을 때마다 하나씩. 5개마다 진한 고리."],
+  ["ringsfaded", "Old 접시의 흐린 뚜껑", "승격된 뒤의 나이", "고리가 날아가는 동안 그대로 따라가다가, Old 에 내려앉으면 뚜껑 하나로 눌립니다. 나이 비트는 남지만 Old 에서는 더 세지 않습니다."],
+  ["gauge", "선반 옆 눈금 기둥과 표시", "승격 임계값", "기본 15. Survivor 가 절반 넘게 차면 내려갑니다(동적 나이 판정)."],
+  ["old", "오른쪽 큰 선반", "Old", "임계값에 닿았거나 Survivor 에 못 들어간 접시가 옵니다."],
+  ["cards", "Old 앞 메모판의 카드", "카드 테이블", "Old 에서 Young 을 가리키는 끈이 있는 구간의 카드가 섭니다. Minor GC 는 선 카드만 훑습니다."],
+  ["gantry", "갠트리", "Eden 비우기", "살아 있는 접시가 다 떠난 뒤 배식대를 한 번에 닦습니다."],
+  ["watch", "스톱워치", "멈춘 시간(Stop-the-World)", "위쪽 표시등이 켜진 동안 요리사가 멈춥니다. Minor 는 짧고 Full 은 깁니다."],
+];
+const legendBlock = legendHtml(LEGEND);
 const stepsHtml = `<ol class="jk-steps">${STEPS.map(([name, text], i) => `<li><button type="button" data-step="${i}"><span class="jk-n">${i + 1}</span><span><b>${name}</b> ${text}</span></button></li>`).join("")}</ol>`;
 const STATS = [["gc", "GC"], ["eden", "Eden"], ["s0", "S0"], ["s1", "S1"], ["old", "Old"], ["thr", "임계값"], ["prom", "승격"], ["pause", "멈춤"]];
 const statsHtml = `<dl class="gc-stats" aria-live="off">${STATS.map(([id, name]) => `<div><dt>${name}</dt><dd data-stat="${id}">–</dd>${["eden", "s0", "s1", "old"].includes(id) ? `<i data-bar="${id}"></i>` : ""}</div>`).join("")}</dl>`;
@@ -360,6 +376,7 @@ function draw(t) {
     node.style.opacity = (cell.presence * (1 - 0.6 * cell.dim)).toFixed(3);
     move(node, [cell.shift[0], cell.shift[1], 0]);
     if (once("o" + i, cell.lit)) lit(node, cell.lit);
+    if (once("oa" + i, cell.age)) node.querySelector('[data-part="oldrings"]').innerHTML = parts.rings(oldAt(i), cell.age, false, true);
   });
   s.cards.forEach((up, i) => { if (once("c" + i, up)) el.cards[i].innerHTML = card(i, up); });
   el.tags.forEach((node, space) => { const on = s.toSpace === space; if (once("t" + space, on)) lit(node, on); });
@@ -452,10 +469,10 @@ const body = k.plateHtml({
     { mark: "edge", label: "끈 = 참조(주문서·Old → 접시)" },
   ],
   caption:
-    "칸 수는 JDK 21 기본값 비율 그대로입니다: Eden:S0:S1 = 8:1:1(SurvivorRatio=8), Old:Young = 2:1(NewRatio=2), 최대 나이 15(MaxTenuringThreshold), Survivor 가 50% 넘게 차면 임계값을 낮춤(TargetSurvivorRatio=50). 접시 하나가 같은 크기의 객체 하나이고, 규칙은 Serial GC 기준입니다. 기본 GC 인 G1 은 힙을 같은 크기 구역(region)으로 나눠 Eden·Survivor·Old 를 붙이지만 나이 먹기와 승격 규칙은 같습니다. Minor GC 멈춤 2ms 는 로컬 로그 값, Full GC 80ms 는 설명용 예시입니다.",
+    "칸 수는 JDK 21 기본값 비율 그대로입니다: Eden:S0:S1 = 8:1:1(SurvivorRatio=8), Old:Young = 2:1(NewRatio=2), 최대 나이 15(MaxTenuringThreshold), Survivor 가 50% 넘게 차면 임계값을 낮춤(TargetSurvivorRatio=50). 접시 하나가 같은 크기의 객체 하나이고, Old 로 간 접시의 고리는 흐린 뚜껑 하나로 눌러 두었습니다. 객체 헤더의 나이 비트는 그대로 남지만 Old 에서는 더 세지도, 쓰지도 않기 때문입니다. 규칙은 Serial GC 기준입니다. 기본 GC 인 G1 은 힙을 같은 크기 구역(region)으로 나눠 Eden·Survivor·Old 를 붙이지만 나이 먹기와 승격 규칙은 같습니다. Minor GC 멈춤 2ms 는 로컬 로그 값, Full GC 80ms 는 설명용 예시입니다.",
   body: `<div class="iso-stage" tabindex="0" role="slider" aria-label="Heap 세대와 GC: 클릭하거나 화살표 키로 단계를 옮깁니다" aria-valuemin="1" aria-valuemax="9" aria-valuenow="1">${svg}</div>`,
 });
 
 const name = theme === "light" ? "gc-light.html" : "gc.html";
-writeFileSync(join(HERE, name), k.pageHtml({ title: "Heap 세대와 GC", theme, body: PAGE_CSS + body + statsHtml + stepsHtml, script: kitScript() + live, width: 720 }).replace('<html lang="en">', '<html lang="ko">'));
+writeFileSync(join(HERE, name), k.pageHtml({ title: "Heap 세대와 GC", theme, body: LEGEND_CSS + PAGE_CSS + body + statsHtml + legendBlock + stepsHtml, script: kitScript() + live, width: 720 }).replace('<html lang="en">', '<html lang="ko">'));
 console.log("wrote", name);

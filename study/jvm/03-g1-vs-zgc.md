@@ -5,6 +5,10 @@
 - [Oracle JDK 21 GC 튜닝 가이드: G1](https://docs.oracle.com/en/java/javase/21/gctuning/garbage-first-g1-garbage-collector1.html)
 - [JEP 439: Generational ZGC](https://openjdk.org/jeps/439) (JDK 21), [JEP 474](https://openjdk.org/jeps/474) (JDK 23부터 기본 모드), [JEP 490](https://openjdk.org/jeps/490) (JDK 24부터 이 모드만 남음)
 
+[![G1 vs ZGC 그림](figures/g1-vs-zgc/g1-zgc-light.png)](https://kbj804.github.io/java-in-practice/study/jvm/figures/g1-vs-zgc/g1-zgc-light.html)
+
+그림을 누르면 움직이는 버전이 열립니다([다크 테마](https://kbj804.github.io/java-in-practice/study/jvm/figures/g1-vs-zgc/g1-zgc.html)). 뒤쪽 주방이 G1, 앞쪽 주방이 ZGC이고, 아래 기록계 두 줄에 두 GC의 멈춤이 그려집니다. 부품 뜻은 그림 아래 범례에 있습니다. 멈춤 시간과 칸 배치는 설명용으로 단순화한 값입니다.
+
 ## 한 줄 요약
 
 | | G1 | ZGC |
