@@ -13,6 +13,7 @@ Python(FastAPI)으로 백엔드를 해 온 개발자가 Java를 공부하면서 
 |---|---|
 | JVM | [01. JVM은 어떻게 동작하나 (식당 주방 비유)](study/jvm/01-how-jvm-works.md) |
 | JVM | [02. Heap을 세대로 나누는 이유와 Minor GC·Full GC](study/jvm/02-generational-gc.md) |
+| JVM | [03. G1 vs ZGC: 왜 GC가 두 개고, 각각 어떻게 동작하나](study/jvm/03-g1-vs-zgc.md) |
 | Spring | [01. 게시글 API로 본 Spring Boot 기본기 (FastAPI와 비교)](study/spring/01-spring-basics.md) |
 | Spring | [02. 트랜잭션 안의 외부 호출과 커넥션 풀 고갈](study/spring/02-connection-pool.md) |
 
