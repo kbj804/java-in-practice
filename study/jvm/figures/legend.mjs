@@ -72,6 +72,30 @@ const G = {
   lamp: '<path class="b" d="M6 12h10v3H6z"/><path d="M11 12V8"/><path class="k" d="M8 8a3 3 0 0 1 6 0z"/>',
   // 두 줄 기록계
   recorder: '<path class="b" d="M1.5 3h19v11h-19z"/><path d="M1.5 8.5h19"/><path class="l" d="M3 6.5h4l1-2.5 1 2.5h10M3 12h7l.5-1 .5 1h8"/>',
+  // 레인(긴 판)과 뒤의 높은 기둥
+  lane: '<path class="b" d="M3 9h16v4H3z"/><path class="b" d="M5 1.5h4v7.5H5z"/><ellipse class="l" cx="14" cy="11" rx="2.6" ry="1"/>',
+  // 높은 기둥과 눈금
+  column: '<path class="b" d="M8 1.5h6v13H8z"/><path class="l" d="M8 4h2M8 6.5h2M8 9h2M8 11.5h2"/>',
+  // 원판 위 스택 프레임 세 장
+  token: '<ellipse class="b" cx="11" cy="13" rx="6.5" ry="2"/><path class="b" d="M7 9.5h8v2.5H7zM7.7 6.5h6.6v2.5H7.7z"/><path class="k" d="M8.4 3.5h5.2V6H8.4z"/>',
+  // 프레임 세 장만
+  frames: '<path class="b" d="M6 11h10v3H6zM7 7.5h8v3H7zM8 4h6v3H8z"/>',
+  // 받침 위 레인 넷
+  pool: '<path class="b" d="M1.5 11h19v3.5h-19z"/><path class="b" d="M3 7h3.5v4H3zM7.5 7h3.5v4H7.5zM12 7h3.5v4H12zM16.5 7H20v4h-3.5z"/>',
+  // 칸이 있는 긴 트레이
+  tray: '<path class="b" d="M1.5 7h19v5h-19z"/><circle class="l" cx="5" cy="9.5" r="1.4"/><circle class="l" cx="10" cy="9.5" r="1.4"/><circle class="k" cx="15" cy="9.5" r="1.4"/>',
+  // 격자판
+  heap: '<path class="b" d="M1.5 3h19v11h-19z"/><path class="l" d="M7.8 3v11M14.2 3v11M1.5 8.5h19"/><path class="k" d="M3.5 4.8h2.5v2H3.5z"/>',
+  // 깜박이는 점
+  pulse: '<circle class="k" cx="11" cy="8.5" r="2"/><circle class="l" cx="11" cy="8.5" r="5"/>',
+  // 레인 앞 표시등
+  lamp2: '<path class="b" d="M4 11h14v3H4z"/><path class="k" d="M9 11V8.5h4V11z"/><path class="l" d="M11 6.5V4.5M7.5 7.5 6 6M14.5 7.5 16 6"/>',
+  // 프레임을 두른 고리
+  monitor: '<path class="b" d="M8 3.5h6v10H8z"/><path class="k" d="M5 7.5h12v2.6H5z"/>',
+  // 플러그가 꽂힌 랙
+  rack: '<path class="b" d="M1.5 8h19v5h-19z"/><path class="k" d="M4 5h2.4v3H4zM8.5 5h2.4v3H8.5z"/><circle class="l" cx="14" cy="8" r="1"/><circle class="l" cx="18" cy="8" r="1"/>',
+  // 데이터베이스 원통
+  drum: '<ellipse class="b" cx="11" cy="3.5" rx="6" ry="2"/><path class="b" d="M5 3.5v10c0 1.1 2.7 2 6 2s6-.9 6-2v-10"/><path class="l" d="M5 7c0 1.1 2.7 2 6 2s6-.9 6-2M5 10.5c0 1.1 2.7 2 6 2s6-.9 6-2"/>',
 };
 
 export const LEGEND_CSS = `<style>
