@@ -4,6 +4,10 @@
 
 Java 코드가 기계어로 실행되기까지를 식당 주방에 빗대어 정리했습니다.
 
+[![JVM 주방 그림](figures/kitchen/kitchen-light.png)](https://kbj804.github.io/java-in-practice/study/jvm/figures/kitchen/kitchen-light.html)
+
+그림을 누르면 움직이는 버전이 열립니다. 레시피 카드 출력(빌드) → 3단 선반에서 카드 찾기(클래스 로딩) → 서랍 열기(링킹·초기화) → 주문서 꽂이와 조리대(Stack·Heap) → 밀키트 냉장고(JIT) → 정리 갠트리(GC) 순서로 돌아가고, 클릭이나 ← → 키, 1~6 숫자 키로 단계를 옮길 수 있습니다. ([다크 테마](https://kbj804.github.io/java-in-practice/study/jvm/figures/kitchen/kitchen.html), 그림의 호출 수와 임계값은 설명용 숫자입니다.)
+
 ```
 레시피 원고(.java) ─본사(javac)─▶ 표준 레시피 카드(.class)
   ─▶ ① 카드 꺼내 오기(클래스 로더)
