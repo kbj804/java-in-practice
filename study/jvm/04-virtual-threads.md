@@ -2,16 +2,12 @@
 
 요청 하나에 스레드 하나를 쓰는 방식은 그대로 두고, 스레드를 싸게 만든 것이 가상 스레드입니다. 이 노트는 무엇이 싸졌는지, 어디서 막히는지(pinning, 커넥션 풀)를 그림과 실험으로 정리합니다.
 
-[![플랫폼 스레드와 가상 스레드 그림](figures/virtual-threads/vt-light.png)](https://kbj804.github.io/java-in-practice/study/jvm/figures/virtual-threads/vt-light.html)
-
-그림을 누르면 움직이는 버전이 열립니다([다크 테마](https://kbj804.github.io/java-in-practice/study/jvm/figures/virtual-threads/vt.html)).
-- 구역마다 그림 안에 라벨이 붙어 있습니다: 플랫폼 스레드, 요청 대기, 캐리어 스레드, 가상 스레드 대기 큐, 힙, 커넥션 풀, DB.
-- 움직이는 원판에는 `VT`(가상 스레드)나 `요청`(플랫폼 스레드에 묶인 작업)이 적혀 있습니다.
-- 그림 위 한 줄이 지금 단계에서 일어나는 일을 설명하고, 그 단계의 구역 라벨이 진하게 바뀝니다.
-- 스택 예약 기둥, 깜박이는 점(I/O 대기), 표시등, 고리 같은 기호는 그림 아래 범례에 있습니다.
-- 단계는 6개입니다: 플랫폼 스레드 → mount → 블로킹과 unmount → 다른 캐리어에 remount → pinning → 커넥션 풀 상한.
-- 클릭, ← → 키, 1~6 숫자 키로 단계를 옮깁니다.
-- 레인은 4개로 줄였고, 시간 축은 설명용입니다. 실제 숫자는 아래 실험에 있습니다.
+그림은 세 장입니다. 4a와 4b는 **같은 요청 12개, 같은 레인 4개, 같은 시계**를 써서 나란히 비교할 수 있습니다.
+- 그림 안 라벨이 구역 이름을 알려 주고, 그림 위 한 줄이 지금 단계에서 일어나는 일을 설명합니다. 기호는 그림 아래 범례에 있습니다.
+- 아래쪽 시간 막대는 레인(스레드)마다 상태를 칸으로 보여 줍니다. 진한 칸은 CPU 실행, 빗금 칸은 붙잡고 기다림(낭비), 빈칸은 쉬는 중입니다.
+- 리드아웃은 `완료 n/12 · 경과 t초 · 스레드 실제 일한 비율 x%`이고, 값은 그림의 모델 시뮬레이션에서 나옵니다. 모델 초는 설명용 단위입니다. 실제 숫자는 아래 [실험](#실험)에 있습니다.
+- 클릭, ← → 키, 숫자 키로 단계를 옮깁니다. 그림 위쪽 링크로 세 그림을 오갈 수 있습니다.
+- 레인은 4개로 줄였습니다. 실제 캐리어 수 기본값은 코어 수입니다.
 
 ## 플랫폼 스레드
 
@@ -22,6 +18,17 @@
   ```
 - I/O를 기다리는 동안에도 스레드는 그 요청에 묶여 있습니다. CPU는 놀아도 스레드는 못 씁니다.
 - 그래서 동시에 처리할 수 있는 요청 수가 스레드 수에서 막힙니다. 스레드를 무작정 늘릴 수도 없습니다. OS 한도와 메모리에 걸립니다. [실험 1](#실험-1-작업-10000개가-각각-1초씩-기다릴-때)에서 8,162개째에 실패했습니다.
+
+### Fig 4a 플랫폼 스레드
+
+[![Fig 4a 플랫폼 스레드](figures/platform-threads/pt-light.png)]({B}/platform-threads/pt-light.html)
+
+움직이는 버전: [라이트]({B}/platform-threads/pt-light.html) · [다크]({B}/platform-threads/pt.html). 단계는 3개입니다.
+1. 요청 하나가 스레드 하나를 차지합니다.
+2. I/O 대기 중에도 스레드를 점유합니다.
+3. 풀이 차면 줄을 섭니다.
+
+스레드 4개의 시간 막대가 대부분 빗금(붙잡고 I/O 대기)으로 찹니다. 요청 12개가 **13.0초**(모델 초)에 끝나고, 스레드가 실제로 일한 비율은 **18%**입니다.
 
 ## 가상 스레드
 
@@ -46,13 +53,45 @@
 
 코드에서 보면 블로킹 코드를 그대로 씁니다. `Thread.sleep`도 JDBC 호출도 그대로입니다. 내려오고 올라가는 일은 JDK가 합니다.
 
+### Fig 4b 가상 스레드
+
+[![Fig 4b 가상 스레드](figures/virtual-threads/vt-light.png)](https://kbj804.github.io/java-in-practice/study/jvm/figures/virtual-threads/vt-light.html)
+
+움직이는 버전: [라이트](https://kbj804.github.io/java-in-practice/study/jvm/figures/virtual-threads/vt-light.html) · [다크](https://kbj804.github.io/java-in-practice/study/jvm/figures/virtual-threads/vt.html). 단계는 4개입니다.
+1. mount
+2. I/O 때 힙으로 unmount
+3. 다른 캐리어에 remount(테두리 VT가 캐리어 2 → 3)
+4. 끝
+
+## 4a와 4b 비교: 같은 요청 12개
+
+| | 4a 플랫폼 스레드 | 4b 가상 스레드 |
+|---|---|---|
+| 12개가 끝나는 시각(모델 초) | 13.0 | 5.3 |
+| 스레드(캐리어)가 실제로 일한 비율 | 18% | 45% |
+| I/O 대기 중 스레드 | 붙잡혀 있음(빗금 칸) | 비워져 다른 VT 실행(빈칸) |
+| 기다리는 요청이 있는 곳 | 대기 줄(트레이) | 힙(stack chunk) |
+
+- 두 그림의 CPU 일(진한 칸)의 총량은 같습니다. 차이는 빗금 칸입니다. 4a는 I/O 동안 스레드가 붙잡혀 있어서 다음 요청이 줄에서 기다립니다. 4b는 그 시간에 캐리어가 다른 가상 스레드를 실행합니다.
+- 실측에서도 차이가 같은 방향입니다. [실험 1](#실험-1-작업-10000개가-각각-1초씩-기다릴-때)에서 작업 10,000개를 플랫폼 스레드 풀 200으로 돌리면 50,374 ms, 가상 스레드로 돌리면 1,051 ms가 걸렸습니다.
+
 ### Python과 비교
 
 - Python의 `ThreadPoolExecutor`는 플랫폼 스레드 방식입니다. GIL 때문에 CPU 일은 한 번에 하나만 돌지만, I/O 동안 스레드를 붙잡는 구조는 같습니다.
 - `asyncio`도 I/O 동안 실행을 양보한다는 점에서 가상 스레드와 같습니다. 다만 `async`/`await`를 코드에 직접 적어야 하고, 블로킹 함수를 부르면 이벤트 루프 전체가 멈춥니다.
 - 가상 스레드는 양보를 JDK가 대신 합니다. 그래서 기존 블로킹 코드를 그대로 쓸 수 있습니다. 대신 아래 pinning처럼 JDK가 대신 못 해 주는 경우를 알아야 합니다.
 
-## pinning: 캐리어를 붙잡는 경우
+## 가상 스레드의 함정 (Fig 4c)
+
+[![Fig 4c 가상 스레드의 함정](figures/vt-pitfalls/pit-light.png)](https://kbj804.github.io/java-in-practice/study/jvm/figures/vt-pitfalls/pit-light.html)
+
+움직이는 버전: [라이트](https://kbj804.github.io/java-in-practice/study/jvm/figures/vt-pitfalls/pit-light.html) · [다크](https://kbj804.github.io/java-in-practice/study/jvm/figures/vt-pitfalls/pit.html). 단계는 4개입니다.
+1. synchronized 안에서 I/O를 기다려 pinning이 일어납니다.
+2. 캐리어가 다 붙잡혀 큐가 밀립니다. 8개가 6.1초에 끝납니다.
+3. ReentrantLock으로 바꾸면 unmount해서 3.7초에 끝납니다.
+4. 커넥션 풀 상한: VT 20개, 커넥션 10개.
+
+### pinning: 캐리어를 붙잡는 경우
 
 - 다음 두 경우에는 블로킹해도 unmount하지 못하고 **캐리어를 붙잡습니다.**
   - `synchronized` 블록이나 메서드 안에서 블로킹할 때
@@ -67,7 +106,7 @@
 - 이때 JDK가 스케줄러의 캐리어를 임시로 하나 늘려서 버팁니다. 소스에서는 `jdk.internal.misc.Blocker`가 `ForkJoinPool`의 compensated block을 엽니다.
 - 그래서 parallelism보다 캐리어가 잠시 많아질 수 있고, 상한은 `maxPoolSize`(256)입니다.
 
-## 커넥션 풀은 여전히 상한
+### 커넥션 풀은 여전히 상한
 
 - 가상 스레드는 **스레드**를 싸게 만들 뿐, DB 커넥션을 늘려 주지 않습니다.
 - HikariCP 기본 `maximumPoolSize`는 10입니다. 가상 스레드 1,000개가 동시에 DB를 쓰려 해도 동시에 쿼리하는 것은 10개입니다.

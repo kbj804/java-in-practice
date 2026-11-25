@@ -37,8 +37,8 @@ export function makeParts(k, P, M) {
   }
 
   // 레인 앞 표시등: 스레드가 일은 안 하면서 붙잡혀 있을 때(hold, pin) 켜진다.
-  function lamp(side, kIndex, on) {
-    const x = M.LANE_X[side][kIndex] + M.LANE_W / 2;
+  function lamp(kIndex, on) {
+    const x = M.LANE_X[kIndex] + M.LANE_W / 2;
     const y = M.LANE_Y + M.LANE_D - 7;
     return [
       S(k.cylinder(x, y, 2.4, M.LANE_TOP, 1, P, 20, 0.2), { tone: "mid", crease: "lo" }),
