@@ -35,7 +35,10 @@ export function build(cfg) {
   const theme = process.argv.includes("--light") ? "light" : "dark";
   const P = k.fitProjection(cfg.fit, WIDTH, SCENE_H, { pad: 30, azimuth: 70, elevation: 40 });
   const parts = makeParts(k, P, M);
-  const { LANES, LANE_X, LANE_W, LANE_Y, LANE_D, LANE_TOP, TRAY_TOP, HEAP, HEAP_TOP, RACK, RACK_TOP, SOCKET_Y } = M;
+  const { LANES, LANE_X, LANE_W, LANE_Y, LANE_D, LANE_TOP, TRAY_TOP, HEAP, HEAP_TOP, RACK_TOP, SOCKET_Y } = M;
+  // 커넥션 수를 줄인 그림(cfg.conns)은 랙도 그 수에 맞춰 짧게 만든다. 소켓 간격(10.5)과 왼쪽 자리는 그대로.
+  const CONN_N = cfg.conns ?? M.CONNS;
+  const RACK = cfg.conns ? { ...M.RACK, w: 2 * (M.plugAt(0)[0] - M.RACK.x) + (CONN_N - 1) * 10.5 } : M.RACK;
   const PLATE = cfg.plate;
 
   const at = (point) => k.iso(point, P);
@@ -136,11 +139,11 @@ export function build(cfg) {
   function rack() {
     const out = [`<path class="iso-halo" d="${k.haloOf(RACK, 0, 0.1, P)}" style="filter:blur(3px)"/>`, slab(RACK, 0, RACK_TOP, { tone: "mid" }, 4, 0.5)];
     out.push(L(k.planOutline(k.insetPlan(RACK, 2), RACK_TOP, P, 3), { tone: "faint" }));
-    out.push(L(Array.from({ length: M.CONNS }, (_, s) => k.ring(...M.plugAt(s).slice(0, 2), 3.6, RACK_TOP, P, 20)).join(""), { tone: "lo" }));
+    out.push(L(Array.from({ length: CONN_N }, (_, s) => k.ring(...M.plugAt(s).slice(0, 2), 3.6, RACK_TOP, P, 20)).join(""), { tone: "lo" }));
     out.push(screws(k.corners(RACK, 1.8), RACK_TOP, 0.4));
     const front = RACK.y + RACK.d;
     const slots = [];
-    for (let i = 0; i < 13; i++) {
+    for (let i = 0; RACK.x + 6 + i * 7.8 + 4.5 <= RACK.x + RACK.w - 4; i++) {
       const x = RACK.x + 6 + i * 7.8;
       slots.push(k.pathOf([at([x, front, 2.4]), at([x + 4.5, front, 2.4]), at([x + 4.5, front, 5]), at([x, front, 5])], true));
     }
@@ -202,7 +205,7 @@ export function build(cfg) {
       tray(),
       cfg.rack ? rack() : "",
       ...Array.from({ length: LANES }, (_, i) => `<g data-part="lamp" data-i="${i}">${parts.lamp(i, false)}</g>`),
-      cfg.rack ? `<g data-part="plugs">${Array.from({ length: M.CONNS }, (_, s) => parts.plug(s, false)).join("")}</g>` : "",
+      cfg.rack ? `<g data-part="plugs">${Array.from({ length: CONN_N }, (_, s) => parts.plug(s, false)).join("")}</g>` : "",
       `<g data-part="mobile"></g>`,
       tagsSvg(k, P, cfg.tags, WIDTH),
       timelineFrame(),
@@ -257,6 +260,7 @@ const TL = ${JSON.stringify(TL)};
 const AXIS = ${cfg.axis};
 const CHIP = ${JSON.stringify(cfg.chip)};
 const RACKED = ${cfg.rack ? "true" : "false"};
+const CONN_N = ${CONN_N};
 const stage = document.querySelector(".iso-stage");
 const svg = stage.querySelector("svg");
 const $ = (selector) => svg.querySelector(selector);
@@ -313,12 +317,14 @@ function draw(t) {
   el.tags.forEach((node) => { const key = node.dataset.when; if (key && once("w" + key, when[key])) node.style.display = when[key] ? "" : "none"; });
   el.lamps.forEach((node) => {
     const i = Number(node.dataset.i);
-    const on = s.lanes[i] === "hold" || s.lanes[i] === "pin";
+    const on = s.lanes[i] === "hold" || s.lanes[i] === "pin" || s.lanes[i] === "hconn" || s.lanes[i] === "cwait";
     if (once("l" + i, on)) node.innerHTML = parts.lamp(i, on);
   });
   if (RACKED) {
+    // 가상 스레드는 플러그 위의 원판 자리로, 플랫폼 스레드(hconn)는 모델이 기록한 쥔 자리로 켠다.
     const busy = s.tokens.filter((token) => token.where === "conn").map((token) => Math.round((token.at[0] - plugAt(0)[0]) / 10.5));
-    if (once("plugs", busy.join(","))) el.plugs.innerHTML = Array.from({ length: CONNS }, (_, slot) => parts.plug(slot, busy.includes(slot))).join("");
+    if (s.kind === "platform") s.plugs.forEach((used, slot) => { if (used) busy.push(slot); });
+    if (once("plugs", busy.join(","))) el.plugs.innerHTML = Array.from({ length: CONN_N }, (_, slot) => parts.plug(slot, busy.includes(slot))).join("");
   }
   el.mobile.innerHTML = s.tokens
     .sort((a, b) => (a.flying - b.flying) || (depthOf(a.at, P) - depthOf(b.at, P)))

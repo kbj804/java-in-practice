@@ -881,14 +881,18 @@ const plugAt = (s) => [RACK.x + 8.5 + s * 10.5, RACK.y + RACK.d / 2, RACK_TOP];
 // loc: "pend", "q:i", "run:k"(레인 위 실행), "hold:k"(플랫폼 스레드가 I/O 를 기다리며 붙잡힘),
 // "pin:k"(가상 스레드가 synchronized 안에서 블로킹해 캐리어를 붙잡음), "heap:c"(unmount, I/O 대기),
 // "cw:c"(힙에서 커넥션을 기다림), "conn:s"(커넥션을 쥐고 쿼리 결과를 기다림), "done".
+// 플랫폼 스레드의 db 구간: 스레드(레인)를 놓지 않는다. 커넥션이 없으면 "cwait:k"(레인을 붙잡은 채 커넥션 대기),
+// 있으면 "hconn:k"(커넥션을 쥐고 레인 위에서 응답 대기). 쥔 커넥션 자리는 plugs 배열에 남는다.
+// scn.conns 로 커넥션 수를 바꿀 수 있다(기본 CONNS).
 // scn = { kind: "platform" | "virtual", seconds, tasks: [{ id, arrive, seg: [["cpu"|"io"|"db", 초]], pinned }] }
 function simulate(scn) {
   const platform = scn.kind === "platform";
   const tasks = scn.tasks.map((spec, index) => ({ ...spec, index, seg: spec.seg.map((s) => [...s]), at: 0, left: 0, loc: "pend", hist: [{ t: 0, loc: "pend" }], lanes: [] }));
   const lanes = Array(LANES).fill(null);
   const cells = Array(HEAP_COLS * HEAP_ROWS).fill(null);
-  const plugs = Array(CONNS).fill(null);
-  const reserved = Array(CONNS).fill(null);
+  const conns = scn.conns ?? CONNS;
+  const plugs = Array(conns).fill(null);
+  const reserved = Array(conns).fill(null);
   const queue = [];
   const connWait = [];
   const counts = [];
@@ -914,6 +918,12 @@ function simulate(scn) {
       toHeap(task, "heap");
       return;
     }
+    if (platform) {
+      const s = plugs.indexOf(null);
+      if (s >= 0) { plugs[s] = task; set(task, "hconn:" + k); }
+      else { connWait.push(task); set(task, "cwait:" + k); }
+      return;
+    }
     // db: 커넥션을 받으면 쿼리를 보내고 unmount, 못 받으면 힙에서 기다린다(Semaphore.acquire 도 park).
     freeLane(task);
     const mine = reserved.indexOf(task);
@@ -934,11 +944,21 @@ function simulate(scn) {
     for (const task of tasks) if (task.loc === "pend" && task.arrive <= t + 1e-9) { task.left = task.seg[0][1]; enqueue(task); }
     for (const task of tasks) {
       const [where, slot] = task.loc.split(":");
-      if (!["run", "hold", "pin", "heap", "conn"].includes(where)) continue;
+      if (!["run", "hold", "pin", "heap", "conn", "hconn"].includes(where)) continue;
       task.left -= DT;
       if (task.left > 1e-9) continue;
       if (where === "run" || where === "hold" || where === "pin") advance(task);
       else if (where === "heap") { leaveHeap(task); task.at++; task.left = task.seg[task.at][1]; enqueue(task); }
+      else if (where === "hconn") {
+        // 플랫폼 스레드: 커넥션을 돌려주고 같은 레인에서 이어서 실행. 레인을 붙잡고 기다리던 다음 작업이 커넥션을 쥔다.
+        const s = plugs.indexOf(task);
+        plugs[s] = null;
+        const next = connWait.shift();
+        if (next) { plugs[s] = next; set(next, "hconn:" + lanes.indexOf(next)); }
+        task.at++;
+        task.left = task.seg[task.at][1];
+        set(task, "run:" + lanes.indexOf(task));
+      }
       else if (where === "conn") {
         const s = Number(slot);
         plugs[s] = null;
@@ -970,12 +990,13 @@ function simulate(scn) {
       held: lanes.filter(Boolean).length,
       running: tasks.filter((task) => task.loc.startsWith("run")).length,
       queued: queue.length,
-      waiting: tasks.filter((task) => /^(hold|pin|heap|conn)/.test(task.loc)).length,
+      waiting: tasks.filter((task) => /^(hold|pin|heap|conn|cwait|hconn)/.test(task.loc)).length,
       pinned: tasks.filter((task) => task.loc.startsWith("pin")).length,
       conns: plugs.filter(Boolean).length,
       connWait: connWait.length,
       done: tasks.filter((task) => task.loc === "done").length,
       lanes: lanes.map((task) => (task ? task.loc.split(":")[0] : "idle")),
+      plugs: plugs.map(Boolean),
     });
   }
   const finish = tasks.every((task) => task.loc === "done") ? Math.max(...tasks.map((task) => task.hist[task.hist.length - 1].t)) : null;
@@ -1017,7 +1038,7 @@ function makeModel(fig) {
     const [where, n] = loc.split(":");
     const i = Number(n);
     if (where === "q") return queueAt(i);
-    if (where === "run" || where === "hold" || where === "pin") return laneAt(i);
+    if (where === "run" || where === "hold" || where === "pin" || where === "cwait" || where === "hconn") return laneAt(i);
     if (where === "heap" || where === "cw") return cellAt(i);
     if (where === "conn") { const [x, y, z] = plugAt(i); return [x, y, z + 1.2]; }
     return fallback;
@@ -1066,7 +1087,7 @@ function makeModel(fig) {
       tokens.push({
         id: task.id, at, presence, where, pinned: !!task.pinned,
         lit: where === "run" && since > MOVE * 0.6,
-        waiting: where === "hold" || where === "pin" || where === "heap" || where === "conn",
+        waiting: where === "hold" || where === "pin" || where === "heap" || where === "conn" || where === "cwait" || where === "hconn",
         tracked: task.id === scn.track,
         flying: since < MOVE && cur.loc !== "done" && prev.loc !== "pend",
       });
@@ -1087,7 +1108,7 @@ function makeModel(fig) {
 
   function readoutOf(s) {
     const scn = fig.scenarios[s.scenario];
-    if (scn.readout === "pool") return `커넥션 ${s.conns}/${CONNS} · 커넥션 대기 ${s.connWait} · 완료 ${s.done}/${s.total}`;
+    if (scn.readout === "pool") return `커넥션 ${s.conns}/${scn.conns ?? CONNS} · 커넥션 대기 ${s.connWait} · 완료 ${s.done}/${s.total}`;
     const elapsed = s.finish !== null && s.local >= s.finish ? s.finish : s.local;
     return `완료 ${s.done}/${s.total} · 경과 ${elapsed.toFixed(1)}초 · 스레드 실제 일한 비율 ${Math.round(s.util * 100)}%`;
   }
@@ -1166,6 +1187,7 @@ const TL = {"x0":92,"x1":636,"y0":322,"row":13,"gap":5};
 const AXIS = 14;
 const CHIP = "요청";
 const RACKED = false;
+const CONN_N = 10;
 const stage = document.querySelector(".iso-stage");
 const svg = stage.querySelector("svg");
 const $ = (selector) => svg.querySelector(selector);
@@ -1222,12 +1244,14 @@ function draw(t) {
   el.tags.forEach((node) => { const key = node.dataset.when; if (key && once("w" + key, when[key])) node.style.display = when[key] ? "" : "none"; });
   el.lamps.forEach((node) => {
     const i = Number(node.dataset.i);
-    const on = s.lanes[i] === "hold" || s.lanes[i] === "pin";
+    const on = s.lanes[i] === "hold" || s.lanes[i] === "pin" || s.lanes[i] === "hconn" || s.lanes[i] === "cwait";
     if (once("l" + i, on)) node.innerHTML = parts.lamp(i, on);
   });
   if (RACKED) {
+    // 가상 스레드는 플러그 위의 원판 자리로, 플랫폼 스레드(hconn)는 모델이 기록한 쥔 자리로 켠다.
     const busy = s.tokens.filter((token) => token.where === "conn").map((token) => Math.round((token.at[0] - plugAt(0)[0]) / 10.5));
-    if (once("plugs", busy.join(","))) el.plugs.innerHTML = Array.from({ length: CONNS }, (_, slot) => parts.plug(slot, busy.includes(slot))).join("");
+    if (s.kind === "platform") s.plugs.forEach((used, slot) => { if (used) busy.push(slot); });
+    if (once("plugs", busy.join(","))) el.plugs.innerHTML = Array.from({ length: CONN_N }, (_, slot) => parts.plug(slot, busy.includes(slot))).join("");
   }
   el.mobile.innerHTML = s.tokens
     .sort((a, b) => (a.flying - b.flying) || (depthOf(a.at, P) - depthOf(b.at, P)))
