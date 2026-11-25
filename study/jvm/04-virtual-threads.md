@@ -200,6 +200,35 @@ java -Djdk.virtualThreadScheduler.parallelism=200 -Djdk.virtualThreadScheduler.m
 - pinning만 캐리어 수에 비례해 빨라졌습니다(1,000 ÷ 10 × 100ms ≈ 10초, 1,000 ÷ 200 × 100ms ≈ 0.5초).
 - `sleep`은 JDK 21의 보상 동작 대상이 아니라서, 캐리어 10개일 때 늘어나지 않고 10초가 그대로 걸렸습니다.
 
+### 실험 6: Spring Boot에서 가상 스레드 옵션을 켜면 스레드가 어떻게 바뀌나
+
+[Spring 01](../spring/01-spring-basics.md)의 게시글 API(Spring Boot 4.2, JDK 21)를 씁니다. 외부 호출 흉내(`place-tagger.delay=1s`)가 있는 글쓰기 API에 동시 300개로 요청 900개를 보내고, 2초 뒤 스레드 목록을 찍었습니다.
+
+```sh
+java -jar app.jar --place-tagger.delay=1s --spring.threads.virtual.enabled=false   # 또는 true
+ab -n 900 -c 300 -p body.json -T application/json http://127.0.0.1:8080/experiments/pool/outside-tx
+jcmd <pid> Thread.print                                     # 플랫폼 스레드만 나온다
+jcmd <pid> Thread.dump_to_file -format=json threads.json    # 가상 스레드까지 나온다
+```
+
+| 스레드 | 옵션 끔 | 옵션 켬 |
+|---|---|---|
+| Tomcat 요청 처리 `http-nio-…-exec` | **200** | 0 |
+| 캐리어 `ForkJoinPool-1-worker` | 0 | **10** |
+| 가상 스레드 `tomcat-handler-…` | 0 | **300** |
+| 가상 스레드용 I/O 알림 (`Read-Poller`, `Write-Poller`, `…-Updater`, `VirtualThread-unparker`) | 0 | 5 |
+| Tomcat 연결 받기 (`Acceptor`, `Poller`) | 2 | 2 |
+| GC, JIT, JVM 내부 (`GC Thread`, `G1 …`, `C1/C2 CompilerThread`, `VM Thread` 등) | 약 25 | 약 25 |
+| Hikari 관리 (`housekeeper`, `connection-adder`) | 2 | 2 |
+| **플랫폼 스레드 합계** | **236** | **51** |
+| 요청 900개 처리 시간 | 6.2초 | 4.3초 |
+
+- 옵션을 켜도 플랫폼 스레드는 51개 남습니다. 요청 처리 스레드 200개만 캐리어 10개와 가상 스레드로 바뀌었습니다.
+- 가상 스레드 300개는 모두 `PlaceTagger.suggest`의 `Thread.sleep`에서 힙에 내려와 기다리는 중이었습니다(`VirtualThread.parkNanos`).
+- 옵션을 끄면 동시 300개 중 100개는 Tomcat 스레드 200개가 비기를 기다립니다. 그래서 더 오래 걸렸습니다.
+- `jcmd Thread.print`에는 가상 스레드가 나오지 않습니다. 가상 스레드까지 보려면 `Thread.dump_to_file`을 씁니다.
+- `ab`가 표시한 "Failed requests"는 응답 길이(글 id 자릿수)가 달라서 센 것이고, 응답은 모두 성공했습니다.
+
 ## 자주 헷갈리는 질문
 
 그림과 실험을 보며 실제로 헷갈렸던 질문을 순서대로 정리했습니다.
@@ -374,6 +403,51 @@ synchronized (stockLock) {
 그래서 오래도록 "기본은 `synchronized`, 기능이 더 필요하면 `ReentrantLock`"이 권장이었습니다. Python으로 치면 `with lock:`이 문법에 들어간 것입니다.
 
 다만 "잠금 안에서 I/O"는 예전에도 좋지 않았습니다. 잠금을 기다리는 다른 스레드가 I/O 시간만큼 줄을 서기 때문입니다. "잠금은 짧게, I/O는 잠금 밖에서"는 원래 있던 원칙이고, 가상 스레드에서는 어겼을 때의 비용이 커졌을 뿐입니다. JDK 24 이상에서는 다시 `synchronized`를 써도 됩니다. JEP 491도 "pinning을 피하려고 `ReentrantLock`으로 바꿀 필요가 없다"고 말합니다.
+
+### Q12. 가상 스레드 옵션을 켜면 플랫폼 스레드는 안 쓰나
+
+아닙니다. 바뀌는 것은 **요청을 처리하는 스레드**뿐입니다. [실험 6](#실험-6-spring-boot에서-가상-스레드-옵션을-켜면-스레드가-어떻게-바뀌나)에서 플랫폼 스레드는 236개에서 51개로 줄었고, 0개가 되지는 않았습니다.
+
+`spring.threads.virtual.enabled=true`가 가상 스레드로 바꾸는 것:
+- Tomcat(또는 Jetty)의 요청 처리
+- `@Async`의 기본 실행기, `@Scheduled`의 기본 스케줄러
+- Kafka, RabbitMQ 리스너 컨테이너 등 Spring Boot가 직접 설정하는 실행기
+
+플랫폼 스레드로 남는 것:
+- 캐리어 스레드. 가상 스레드는 혼자 실행될 수 없고 항상 캐리어 위에서 실행됩니다.
+- GC, JIT 컴파일러 같은 JVM 내부 스레드
+- Tomcat이 연결을 받는 acceptor, poller
+- 라이브러리가 따로 만드는 스레드(Hikari 관리 스레드, Netty 이벤트 루프, 비동기 로깅 등)
+- 내가 직접 만든 스레드 풀. `Executors.newFixedThreadPool`, `new Thread()`, `parallelStream()`은 옵션과 상관없이 플랫폼 스레드입니다.
+
+### Q13. 플랫폼 스레드 안에 캐리어, GC, Tomcat 스레드가 들어 있나
+
+아닙니다. **플랫폼 스레드는 종류 이름입니다.** JVM의 스레드는 모두 플랫폼 스레드 아니면 가상 스레드입니다. 캐리어, GC, JIT, Tomcat acceptor, Hikari 관리 스레드는 각각이 하나의 플랫폼 스레드(OS 스레드 1개)이고 맡은 일만 다릅니다.
+
+```
+플랫폼 스레드 (각각 OS 스레드 1개, OS가 직접 코어에 배정)
+├─ 캐리어 ×코어 수        ← 가상 스레드를 태워서 실행
+├─ GC, JIT, JVM 내부      ← 가비지 수집, 기계어 번역 등
+├─ Tomcat acceptor/poller ← 연결 받기
+└─ 라이브러리 스레드       ← Hikari 관리 등
+
+가상 스레드 (OS 스레드 아님)
+└─ 요청마다 1개            ← 실행할 때만 캐리어에 올라탐
+```
+
+**힙에서 기다렸다가 올라타는 것은 가상 스레드만 합니다.**
+
+| | 플랫폼 스레드 (캐리어, GC, Tomcat 등) | 가상 스레드 |
+|---|---|---|
+| 실행 | OS가 직접 코어에 배정 | JVM이 캐리어에 태우고, OS가 그 캐리어를 코어에 배정 |
+| 할 일이 없거나 기다릴 때 | OS 안에서 잠듦. 호출 스택은 OS 스레드 쪽 메모리에 그대로 | 캐리어에서 내려와 힙에서 기다림 |
+| 다른 스레드에 올라타나 | 아니요. 자기 자신이 OS 스레드 | 항상 캐리어 위에서만 실행 |
+
+캐리어가 하는 일은 가상 스레드를 "관리"하는 것이라기보다 **"실행"하는 것**입니다.
+- 어느 가상 스레드를 어느 캐리어에 태울지는 JDK의 스케줄러(`ForkJoinPool`)가 정합니다. 캐리어는 그 큐에서 다음 가상 스레드를 꺼내 실행합니다.
+- 기다리던 가상 스레드를 깨우는 일은 I/O 알림 스레드(`Read-Poller` 등)와 `VirtualThread-unparker`가 합니다. 이 스레드들도 플랫폼 스레드입니다. 이들이 깨운 가상 스레드를 다시 큐에 넣습니다.
+
+플랫폼 스레드에도 `Thread` 객체는 힙에 있습니다. 하지만 이것은 이름표이고, 실제 실행 상태(호출 스택)는 OS 스레드 쪽 메모리에 있습니다. 가상 스레드는 실행 상태까지 힙에 있다는 점이 다릅니다.
 
 ## 언제 쓰나
 
