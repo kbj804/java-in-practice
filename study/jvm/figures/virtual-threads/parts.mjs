@@ -9,7 +9,7 @@ export function makeParts(k, P, M) {
   // pinned 는 프레임을 두른 고리(synchronized 모니터), waiting 은 꼭대기에서 깜박이는 점(I/O 를 기다리는 중).
   const PUCK_H = 1.8;
   const FRAME_H = 1.5;
-  function token({ at: [x, y, z], lit, waiting, pinned, tracked, dim }) {
+  function token({ at: [x, y, z], lit, waiting, pinned, tracked, dim, chip }) {
     const out = [];
     if (tracked) out.push(L(k.ring(x, y, 7.2, z + 0.05, P, 32), { tone: "hi" }));
     out.push(S(k.cylinder(x, y, 5, z, PUCK_H, P, 32, 0.3), { tone: dim ? "lo" : "hi", crease: "lo", lit: lit && !waiting }));
@@ -28,6 +28,11 @@ export function makeParts(k, P, M) {
     }
     out.push(D([at([x, y, top])], { size: 0.45, tone: dim ? "lo" : "hi" }));
     if (waiting) out.push(D([at([x, y, top + 3])], { size: 1.1, tone: "hi", pulse: true }));
+    if (chip) {
+      // 짧은 표시(VT, 요청): 원판 앞쪽 아래에 띄운다.
+      const [cx, cy] = at([x, y, z]);
+      out.push(`<text class="vt-chip" x="${cx.toFixed(1)}" y="${(cy + 8.4).toFixed(1)}">${chip}</text>`);
+    }
     return out.join("");
   }
 

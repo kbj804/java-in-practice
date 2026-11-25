@@ -264,7 +264,7 @@ export function readoutOf(s) {
     case "unmount":
       return `캐리어 ${n(s.held)} · 힙에서 I/O 대기 ${s.waiting}`;
     case "remount":
-      return s.move && s.move.to !== null ? `A0 캐리어 ${s.move.from + 1} → ${s.move.to + 1}` : `캐리어 ${n(s.held)} · I/O 대기 ${s.waiting}`;
+      return s.move && s.move.to !== null ? `테두리 VT 캐리어 ${s.move.from + 1} → ${s.move.to + 1}` : `캐리어 ${n(s.held)} · I/O 대기 ${s.waiting}`;
     case "pinning":
       return `고정된 캐리어 ${n(s.pinned)} · 실행 대기 ${s.queued}`;
     default:

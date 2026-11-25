@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { makeParts } from "./parts.mjs";
 import * as M from "./model.mjs";
 import { legendHtml, LEGEND_CSS } from "../legend.mjs";
+import { tagsSvg, TAG_CSS, NOW } from "./labels.mjs";
 
 // Anatomy 스킬의 kit 을 쓴다: ANATOMY_HOME 이 없으면 ~/.claude/skills/anatomy.
 const SKILL = process.env.ANATOMY_HOME || join(homedir(), ".claude/skills/anatomy");
@@ -15,7 +16,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const theme = process.argv.includes("--light") ? "light" : "dark";
 
 const WIDTH = 660;
-const HEIGHT = 350;
+const HEIGHT = 400;
 
 const PLATE = { x: -206, y: -80, w: 384, d: 136, r: 10 };
 const PLATE_H = 10;
@@ -27,7 +28,7 @@ const P = k.fitProjection(
   [...k.boxCorners(PLATE, -PLATE_H - FOOT_H, 0), [-190, -68, COLUMN_TOP], [13, -68, COLUMN_TOP], [DRUM.x, DRUM.y, DRUM.h + 2]],
   WIDTH,
   HEIGHT,
-  { pad: 18, azimuth: 70, elevation: 40 },
+  { pad: 32, azimuth: 70, elevation: 40 },
 );
 const parts = makeParts(k, P, M);
 const { LANES, LANE_X, LANE_W, LANE_Y, LANE_D, LANE_TOP, TRAY_TOP, HEAP, HEAP_TOP, RACK, RACK_TOP, SOCKET_Y } = M;
@@ -58,12 +59,6 @@ function base() {
   const rail = { x: -98, y: inner.y + 4, w: 3, d: inner.d - 8, r: 0.8 };
   out.push(slab(rail, 0, 2.4, { tone: "mid" }, 3, 0.3));
   out.push(screws([[rail.x + 1.5, rail.y + 2.5], [rail.x + 1.5, rail.y + rail.d - 2.5]], 2.4, 0.4));
-  // 이름판(글자 대신 줄): 왼쪽 앞 빈 자리.
-  const label = { x: -186, y: 30, w: 46, d: 12, r: 1.2 };
-  out.push(slab(label, 0, 0.8, { tone: "lo", crease: "none" }));
-  out.push(L(k.planOutline(k.insetPlan(label, 1.4), 0.8, P, 3), { tone: "faint" }));
-  out.push(L([30, 22, 26, 14].map((w, i) => k.lineOnTop([label.x + 4, label.y + 2.8 + i * 2.1], [label.x + 4 + w, label.y + 2.8 + i * 2.1], 0.8, P)).join(""), { tone: "lo", free: true }));
-  out.push(screws([[label.x + label.w - 3, label.y + 3], [label.x + label.w - 3, label.y + label.d - 3]], 0.8));
   return out.join("");
 }
 
@@ -215,6 +210,7 @@ const svg = k.figureSvg({
     ...["L", "R"].flatMap((side) => Array.from({ length: LANES }, (_, i) => `<g data-part="lamp" data-side="${side}" data-i="${i}">${parts.lamp(side, i, false)}</g>`)),
     `<g data-part="plugs">${Array.from({ length: M.CONNS }, (_, s) => parts.plug(s, false)).join("")}</g>`,
     `<g data-part="mobile"></g>`,
+    tagsSvg(k, P),
   ],
 });
 
@@ -222,23 +218,17 @@ const STEPS = [
   ["플랫폼 스레드", "요청 하나가 스레드 하나를 처음부터 끝까지 씁니다. I/O 를 기다리는 동안에도 스레드를 붙잡고 있어서(표시등), 스레드 4개가 다 차면 다음 요청은 트레이에서 기다립니다. 스레드마다 2MB 스택(뒤 기둥)을 따로 잡습니다."],
   ["mount", "가상 스레드는 큐(FIFO)에 줄을 섰다가 비어 있는 캐리어 스레드에 올라타서(mount) 실행됩니다. 캐리어도 평범한 플랫폼 스레드이고, 수는 기본으로 코어 수만큼입니다."],
   ["블로킹 → unmount", "실행 중에 sleep 이나 소켓 읽기로 블로킹하면, 스택 프레임을 힙으로 옮기고(stack chunk) 캐리어에서 내려옵니다. 비워진 캐리어는 곧바로 큐의 다음 가상 스레드를 실행합니다."],
-  ["다른 캐리어에 remount", "I/O 가 끝나면 가상 스레드는 다시 큐 뒤에 서고, 그때 비어 있는 아무 캐리어에 올라탑니다. 처음과 다른 캐리어일 수 있습니다(테두리 표시한 A0: 캐리어 1 → 2)."],
+  ["다른 캐리어에 remount", "I/O 가 끝나면 가상 스레드는 다시 큐 뒤에 서고, 그때 비어 있는 아무 캐리어에 올라탑니다. 처음과 다른 캐리어일 수 있습니다(테두리 표시한 VT: 캐리어 1 → 2)."],
   ["pinning", "synchronized 안에서 블로킹하면 스택을 힙으로 옮길 수 없어서 캐리어를 붙잡습니다(고리 + 표시등). 캐리어 4개가 모두 붙잡히면 큐의 가상 스레드는 기다립니다. JDK 21 기준이고, JDK 24(JEP 491)에서 synchronized 는 해결됐습니다."],
   ["커넥션 풀 상한", "가상 스레드 20개가 DB 를 쓰려 해도 커넥션은 10개입니다. 나머지는 힙에서 커넥션을 기다립니다. 캐리어는 남아도 처리량은 풀 크기가 정합니다."],
 ];
 const LEGEND = [
-  ["pool", "왼쪽 받침 위 레인 4개", "플랫폼 스레드 풀", "newFixedThreadPool. 레인 하나 = OS 스레드 하나(1:1)."],
-  ["lane", "오른쪽 받침 위 레인 4개", "캐리어 스레드(ForkJoinPool)", "가상 스레드를 실행해 주는 플랫폼 스레드. 기본 개수는 코어 수(이 맥은 10)."],
   ["column", "레인 뒤 높은 기둥", "스레드 스택 예약", "플랫폼 스레드마다 기본 2MB(ThreadStackSize=2048K). 눈금 하나 256KB."],
-  ["token", "원판과 위의 얇은 판", "작업 하나 · 가상 스레드", "얇은 판 하나가 스택 프레임 하나. 오른쪽에서는 원판이 곧 가상 스레드."],
+  ["token", "원판과 위의 얇은 판 (VT · 요청)", "가상 스레드 · 작업 하나", "얇은 판 하나가 스택 프레임 하나. 오른쪽 VT 는 가상 스레드, 왼쪽 요청은 플랫폼 스레드에 묶인 작업."],
   ["frames", "힙 칸에 놓인 원판", "unmount 된 가상 스레드", "스택 프레임이 힙의 stack chunk 객체로 옮겨진 상태. 필요한 만큼만 차지합니다."],
-  ["tray", "레인 앞 트레이", "실행 대기 큐(FIFO)", "앞 탭이 있는 칸이 머리. 빈 레인이 머리부터 가져갑니다."],
-  ["heap", "오른쪽 격자판", "힙(Heap)", "블로킹 중인 가상 스레드가 여기서 기다립니다."],
   ["pulse", "깜박이는 점", "I/O 를 기다리는 중", "sleep, 소켓 읽기, DB 응답 대기."],
   ["lamp2", "레인 앞 표시등", "스레드가 일 없이 붙잡힘", "왼쪽은 I/O 대기 중인 플랫폼 스레드, 오른쪽은 pinning 된 캐리어."],
   ["monitor", "원판을 두른 고리", "synchronized 모니터", "이 안에서 블로킹하면 unmount 하지 못합니다(JDK 21)."],
-  ["rack", "앞쪽 랙의 플러그 10개", "커넥션 풀", "HikariCP 기본 maximumPoolSize=10. 솟은 플러그 = 쓰는 중."],
-  ["drum", "DB 원통", "데이터베이스", "커넥션을 쥔 가상 스레드는 쿼리 결과를 기다리는 동안 캐리어를 비웁니다."],
 ];
 const legendBlock = legendHtml(LEGEND);
 const stepsHtml = `<ol class="jk-steps">${STEPS.map(([name, text], i) => `<li><button type="button" data-step="${i}"><span class="jk-n">${i + 1}</span><span><b>${name}</b> ${text}</span></button></li>`).join("")}</ol>`;
@@ -280,13 +270,26 @@ const readout = document.querySelector("[data-readout]");
 const buttons = [...document.querySelectorAll("[data-step]")];
 const stat = Object.fromEntries([...document.querySelectorAll("[data-stat]")].map((node) => [node.dataset.stat, node]));
 const bar = Object.fromEntries([...document.querySelectorAll("[data-bar]")].map((node) => [node.dataset.bar, node]));
-const el = { mobile: $('[data-part="mobile"]'), plugs: $('[data-part="plugs"]'), lamps: $$('[data-part="lamp"]') };
+const el = { mobile: $('[data-part="mobile"]'), plugs: $('[data-part="plugs"]'), lamps: $$('[data-part="lamp"]'), tags: $$(".vt-tag") };
+const now = document.querySelector(".vt-now");
+const NOW = ${JSON.stringify(NOW)};
 const still = matchMedia("(prefers-reduced-motion: reduce)");
 const cache = new Map();
 const once = (key, value) => { if (cache.get(key) === value) return false; cache.set(key, value); return true; };
 function draw(t) {
   const s = stateAt(t);
-  if (once("phase", s.phase)) buttons.forEach((button, index) => (index === s.phase ? button.setAttribute("aria-current", "step") : button.removeAttribute("aria-current")));
+  if (once("phase", s.phase)) {
+    now.textContent = NOW[s.phase].text;
+    el.tags.forEach((node) => (NOW[s.phase].zones.includes(node.dataset.zone) ? node.setAttribute("data-on", "") : node.removeAttribute("data-on")));
+  }
+  // 조건부 태그: 왼쪽 레인 1 이 점유 중, 오른쪽 레인 1 이 pinning, 힙 첫 칸에서 I/O 대기.
+  const when = {
+    hold: s.side === "L" && s.lanes[0] === "hold",
+    pin: s.side === "R" && s.lanes[0] === "pin",
+    io: s.tokens.some((token) => token.where === "heap" && !token.flying && Math.abs(token.at[0] - cellAt(0)[0]) < 1 && Math.abs(token.at[1] - cellAt(0)[1]) < 1),
+  };
+  el.tags.forEach((node) => { const key = node.dataset.when; if (key && once("w" + key, when[key])) node.style.display = when[key] ? "" : "none"; });
+  if (once("phase2", s.phase)) buttons.forEach((button, index) => (index === s.phase ? button.setAttribute("aria-current", "step") : button.removeAttribute("aria-current")));
   el.lamps.forEach((node) => {
     const i = Number(node.dataset.i);
     const on = node.dataset.side === s.side && (s.lanes[i] === "hold" || s.lanes[i] === "pin");
@@ -299,7 +302,7 @@ function draw(t) {
   }
   el.mobile.innerHTML = s.tokens
     .sort((a, b) => (a.flying - b.flying) || (depthOf(a.at, P) - depthOf(b.at, P)))
-    .map((token) => '<g style="opacity:' + token.presence.toFixed(3) + '">' + parts.token({ ...token, dim: token.where === "cw" }) + "</g>")
+    .map((token) => '<g style="opacity:' + token.presence.toFixed(3) + '">' + parts.token({ ...token, dim: token.where === "cw", chip: s.side === "R" ? "VT" : "요청" }) + "</g>")
     .join("");
   const text = readoutOf(s);
   if (readout.textContent !== text) readout.textContent = text;
@@ -374,5 +377,5 @@ const body = k.plateHtml({
 });
 
 const name = theme === "light" ? "vt-light.html" : "vt.html";
-writeFileSync(join(HERE, name), k.pageHtml({ title: "플랫폼 스레드와 가상 스레드", theme, body: LEGEND_CSS + PAGE_CSS + body + statsHtml + legendBlock + stepsHtml, script: kitScript() + live, width: 720 }).replace('<html lang="en">', '<html lang="ko">'));
+writeFileSync(join(HERE, name), k.pageHtml({ title: "플랫폼 스레드와 가상 스레드", theme, body: LEGEND_CSS + PAGE_CSS + TAG_CSS + `<p class="vt-now" aria-live="polite">${NOW[0].text}</p>` + body + statsHtml + legendBlock + stepsHtml, script: kitScript() + live, width: 720 }).replace('<html lang="en">', '<html lang="ko">'));
 console.log("wrote", name);

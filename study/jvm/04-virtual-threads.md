@@ -5,9 +5,10 @@
 [![플랫폼 스레드와 가상 스레드 그림](figures/virtual-threads/vt-light.png)](https://kbj804.github.io/java-in-practice/study/jvm/figures/virtual-threads/vt-light.html)
 
 그림을 누르면 움직이는 버전이 열립니다([다크 테마](https://kbj804.github.io/java-in-practice/study/jvm/figures/virtual-threads/vt.html)).
-- 왼쪽: 플랫폼 스레드 풀
-- 오른쪽: 캐리어 스레드, 큐, 힙, 커넥션 풀
-- 무엇이 무엇인지는 그림 아래 범례에 있습니다.
+- 구역마다 그림 안에 라벨이 붙어 있습니다: 플랫폼 스레드, 요청 대기, 캐리어 스레드, 가상 스레드 대기 큐, 힙, 커넥션 풀, DB.
+- 움직이는 원판에는 `VT`(가상 스레드)나 `요청`(플랫폼 스레드에 묶인 작업)이 적혀 있습니다.
+- 그림 위 한 줄이 지금 단계에서 일어나는 일을 설명하고, 그 단계의 구역 라벨이 진하게 바뀝니다.
+- 스택 예약 기둥, 깜박이는 점(I/O 대기), 표시등, 고리 같은 기호는 그림 아래 범례에 있습니다.
 - 단계는 6개입니다: 플랫폼 스레드 → mount → 블로킹과 unmount → 다른 캐리어에 remount → pinning → 커넥션 풀 상한.
 - 클릭, ← → 키, 1~6 숫자 키로 단계를 옮깁니다.
 - 레인은 4개로 줄였고, 시간 축은 설명용입니다. 실제 숫자는 아래 실험에 있습니다.
