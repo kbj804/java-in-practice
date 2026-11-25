@@ -16,6 +16,7 @@ Python(FastAPI)으로 백엔드를 해 온 개발자가 Java를 공부하면서 
 | JVM | [03. G1 vs ZGC: 왜 GC가 두 개고, 각각 어떻게 동작하나](study/jvm/03-g1-vs-zgc.md) |
 | JVM | [04. 가상 스레드 vs 플랫폼 스레드 (JDK 21)](study/jvm/04-virtual-threads.md) |
 | JVM | [05. JVM 메이저 버전을 올린 직후 서버가 몇 시간마다 죽는다면](study/jvm/05-jvm-upgrade-periodic-crash.md) |
+| JVM | [06. Kotlin 코루틴 vs 가상 스레드](study/jvm/06-kotlin-coroutines-vs-virtual-threads.md) |
 | Spring | [01. 게시글 API로 본 Spring Boot 기본기 (FastAPI와 비교)](study/spring/01-spring-basics.md) |
 | Spring | [02. 트랜잭션 안의 외부 호출과 커넥션 풀 고갈](study/spring/02-connection-pool.md) |
 | Spring | [03. 동시 처리 상한이 없을 때: 타임아웃, 벌크헤드, 서킷 브레이커](study/spring/03-concurrency-limits.md) |
