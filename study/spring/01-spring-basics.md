@@ -14,7 +14,7 @@
 | `Post` 엔티티 | SQLAlchemy 모델 | Hibernate가 객체 변경을 추적해서 커밋 때 UPDATE를 알아서 날린다(dirty checking) |
 | Flyway `V1__create_post.sql` | Alembic | 버전 파일 이름 규칙으로 순서를 정한다. `ddl-auto: validate`로 엔티티와 스키마가 맞는지만 확인 |
 | 생성자 주입 (`PostService(postRepository, clock)`) | `Depends(get_db)` | 요청마다가 아니라 앱이 뜰 때 한 번 조립된다(싱글턴) |
-| `Clock` 주입 + 테스트 고정 Clock | `freezegun` | 시간을 몰래 바꾸지 않고, 의존성으로 받아서 바꾼다. 당근이 CI로 강제하는 규칙 |
+| `Clock` 주입 + 테스트 고정 Clock | `freezegun` | 시간을 몰래 바꾸지 않고, 의존성으로 받아서 바꾼다. 팀에 따라 CI로 강제하기도 하는 규칙 |
 | Testcontainers + `@ServiceConnection` | `resume_test` DB에 붙여 pytest | 테스트가 뜰 때 진짜 Postgres 컨테이너를 띄우고 접속 정보를 자동으로 덮어쓴다 |
 
 ## 꼭 기억할 것 4가지
