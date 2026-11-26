@@ -111,8 +111,8 @@ ${conns.map((s) => `<rect class="slot" data-conn="${s}" x="298" y="${60 + s * 58
 <rect class="box" x="400" y="58" width="70" height="100" rx="8"/><text class="t-title" x="435" y="112" text-anchor="middle">DB</text>
 ${conns.map((s) => `<path class="query" data-query="${s}" d="M374 ${78 + s * 58} H400" style="display:none"/>`).join("")}
 ${vt
-    ? `<rect class="heapbox" x="10" y="206" width="374" height="86" rx="8"/><text class="t-title" x="18" y="224">힙: 멈춰 둔 가상 스레드</text><text class="t-mute" x="18" y="241">커넥션 대기 ↓</text><text class="t-mute" x="${288 + 6}" y="241">DB 응답 대기 ↓</text><line x1="282" y1="232" x2="282" y2="284" stroke="var(--heapline)" stroke-dasharray="3 3"/>`
-    : `<rect class="nobox" x="10" y="206" width="374" height="86" rx="8"/><text class="t-title" x="18" y="224" style="fill:var(--mute)">힙으로 내려갈 곳 없음</text><text class="t-mute" x="18" y="246">플랫폼 스레드는 기다리는 동안에도</text><text class="t-mute" x="18" y="262">스레드를 놓지 않습니다 → 주황 칸</text>`}
+    ? `<rect class="heapbox" x="10" y="206" width="374" height="86" rx="8"/><text class="t-title" x="18" y="224">힙: 내려놓은 가상 스레드 스택</text><text class="t-mute" x="18" y="241">커넥션 대기 ↓</text><text class="t-mute" x="${288 + 6}" y="241">DB 응답 대기 ↓</text><line x1="282" y1="232" x2="282" y2="284" stroke="var(--heapline)" stroke-dasharray="3 3"/>`
+    : `<rect class="nobox" x="10" y="206" width="374" height="86" rx="8"/><text class="t-title" x="18" y="224" style="fill:var(--mute)">스택을 힙에 내려놓을 수 없음</text><text class="t-mute" x="18" y="246">플랫폼 스레드의 스택은 힙 밖(네이티브 메모리)에 붙어 있어</text><text class="t-mute" x="18" y="262">기다리는 동안에도 스레드를 놓지 못합니다 → 주황 칸</text><text class="t-mute" x="18" y="278">(객체는 6a·6b 모두 같은 힙에 둡니다)</text>`}
 <rect class="box" x="400" y="206" width="70" height="86" rx="8"/><text class="t-title" x="408" y="224">완료</text>
 <g data-links></g><g data-toks></g>
 <text class="t-mute" x="10" y="316">${vt ? "커넥션을 쥔 코루틴도 힙에서 응답을 기다립니다. 캐리어는 비어 있습니다." : "쿼리 하나가 스레드 하나와 커넥션 하나를 동시에 씁니다(초록 선)."}</text>
