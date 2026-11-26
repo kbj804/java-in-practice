@@ -23,4 +23,8 @@ Python(FastAPI)으로 백엔드를 해 온 개발자가 Java를 공부하면서 
 
 ### problems
 
-아직 없습니다. 작성 방식은 [problems/README.md](problems/README.md)에 있습니다.
+작성 방식은 [problems/README.md](problems/README.md)에 있습니다.
+
+| 문제 | 노트 |
+|---|---|
+| 동시성 | [01. 결제 승인을 두 곳이 동시에 돌릴 때: 조건부 UPDATE 대신 "시간으로 비켜 가기"](problems/01-approval-race-without-lock/README.md) |
