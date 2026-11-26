@@ -46,7 +46,6 @@ h1{font-size:20px;margin:0 0 4px}
 .clock{font-variant-numeric:tabular-nums;min-width:64px;text-align:right}
 .figs{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 @media (max-width:900px){.figs{grid-template-columns:1fr}}
-@media (max-width:520px){.stats{grid-template-columns:1fr 1fr}}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 14px 10px}
 .head{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
 .head b{font-size:16px}.head span{color:var(--mute);font-size:13px}
@@ -77,6 +76,7 @@ svg text{fill:var(--ink);font-family:inherit}
 .stat small{display:block;color:var(--mute);font-size:11.5px}
 .stat b{font-variant-numeric:tabular-nums;font-size:16px}
 .stat.warn b{color:var(--hold)}
+@media (max-width:520px){.stats{grid-template-columns:1fr 1fr}}
 .g-run{fill:var(--run)}.g-hconn{fill:var(--hold)}.g-cwait{fill:var(--hold);opacity:.45}.g-conn{fill:var(--conn)}
 .g-row{fill:none;stroke:var(--line)}
 .playhead{stroke:var(--ink);stroke-width:1.2}
@@ -183,12 +183,16 @@ const figs = ["io", "vt"].map((key) => {
     sim.tasks.forEach((task, i) => {
       const h = locAt(task, t), loc = task.hist[h][1];
       let p = posOf(loc, sim, idx, doneOrder[task.id]);
+      const target = p;
       const e = tokEls[i];
       if (!p) { e.style.display = "none"; return; }
       e.style.display = "";
       if (h > 0) { const prev = posOf(task.hist[h - 1][1], sim, idx, doneOrder[task.id]); const u = (t - task.hist[h][0]) / MOVE; if (prev && u < 1) { const k = ease(Math.max(0, u)); p = [prev[0] + (p[0] - prev[0]) * k, prev[1] + (p[1] - prev[1]) * k]; } }
       e.setAttribute("transform", "translate(" + p[0].toFixed(1) + " " + p[1].toFixed(1) + ")" + (loc === "done" ? " scale(0.82)" : ""));
-      e.setAttribute("class", "tok " + cls(loc));
+      // 옮겨 가는 중에는 앞 절반 동안 이전 상태 색을 유지한다.
+      const from = h > 0 && posOf(task.hist[h - 1][1], sim, idx, doneOrder[task.id]);
+      const moving = from && t - task.hist[h][0] < MOVE / 2 && (from[0] !== target[0] || from[1] !== target[1]);
+      e.setAttribute("class", "tok " + cls(moving ? task.hist[h - 1][1] : loc));
       where[task.id] = p;
       e.tag.textContent = "";
     });
@@ -254,7 +258,7 @@ ${card("vt", "6b · 가상 스레드 디스패처", "가상 스레드", `기다�
 <li><i style="background:var(--holdbg);border-color:var(--hold);border-radius:3px"></i>스레드 칸이 주황 = 일 없이 붙잡힌 스레드</li>
 <li>시간 막대: <b style="color:var(--run)">파랑</b> CPU 실행 · <b style="color:var(--hold)">주황</b> 붙잡고 DB 응답 대기 · <b style="color:var(--hold);opacity:.55">연한 주황</b> 붙잡고 커넥션 대기 · <b style="color:var(--conn)">초록</b> 커넥션 사용 중 · 점선 = 모두 끝난 시각</li>
 </ul>
-<p class="cap">스레드 풀과 커넥션 풀은 서로 다른 상자입니다. 6a에서는 커넥션을 쥔 코루틴이 스레드 칸에 앉아 있고(초록 선), 6b에서는 힙에 내려가 있습니다(“C1 쥠”). 아래 시간 막대의 커넥션 두 줄은 두 그림이 거의 같고, 스레드 네 줄만 다릅니다. 실제 Dispatchers.IO는 최대 64개, HikariCP 기본은 10개입니다. 6b가 조금 늦게 끝나는 것은 커넥션을 넘겨받을 때 캐리어에 다시 올라타는 시간 때문입니다. 스페이스로 재생/멈춤, ← →로 0.1초씩 옮깁니다.</p>
+<p class="cap">스레드 풀과 커넥션 풀은 서로 다른 상자입니다. 6a에서는 커넥션을 쥔 코루틴이 스레드 칸에 앉아 있고(초록 선), 6b에서는 힙에 내려가 있습니다(“C1 쥠”). 아래 시간 막대의 커넥션 두 줄은 두 그림이 거의 같고, 스레드 네 줄만 다릅니다. 실제 Dispatchers.IO는 최대 64개, HikariCP 기본은 10개입니다. 6b가 조금 늦게 끝나는 것은 커넥션을 넘겨받은 가상 스레드가 캐리어에 다시 올라타는 시간을 그림에서 0.15초로 크게 그렸기 때문입니다. 실제로는 마이크로초 단위라, 끝나는 시간은 둘이 같다고 보면 됩니다. 스페이스로 재생/멈춤, ← →로 0.1초씩 옮깁니다.</p>
 </main>
 <script>${LIVE}</script>
 </body></html>`;

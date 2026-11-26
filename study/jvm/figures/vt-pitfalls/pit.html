@@ -997,6 +997,7 @@ function simulate(scn) {
       done: tasks.filter((task) => task.loc === "done").length,
       lanes: lanes.map((task) => (task ? task.loc.split(":")[0] : "idle")),
       plugs: plugs.map(Boolean),
+      holders: plugs.map((task) => (task ? task.id : null)),
     });
   }
   const finish = tasks.every((task) => task.loc === "done") ? Math.max(...tasks.map((task) => task.hist[task.hist.length - 1].t)) : null;
