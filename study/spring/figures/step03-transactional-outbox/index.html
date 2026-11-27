@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>커밋과 메시지</title><style>
+:root{--bg:#f6f5f1;--card:#fff;--ink:#1d1d1b;--mute:#6b6a65;--line:#d9d7cf;--box:#fbfaf7;
+--run:#2f6fe4;--runbg:#e3ecfd;--hold:#e08a1e;--holdbg:#fdf0dc;--conn:#1f9d6b;--connbg:#e1f5ec;--fail:#d4483b;--failbg:#fbe4e1;--frame:#b9aee0;--framebg:#f6f4fc}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#141413;--card:#1e1e1c;--ink:#ecebe6;--mute:#9b9a94;--line:#3a3935;--box:#252522;
+--run:#6c9cff;--runbg:#1d2a45;--hold:#f0a443;--holdbg:#3b2c17;--conn:#3cc28d;--connbg:#173328;--fail:#f07467;--failbg:#3d1f1b;--frame:#6e64a8;--framebg:#23212f}}
+:root[data-theme="dark"]{--bg:#141413;--card:#1e1e1c;--ink:#ecebe6;--mute:#9b9a94;--line:#3a3935;--box:#252522;
+--run:#6c9cff;--runbg:#1d2a45;--hold:#f0a443;--holdbg:#3b2c17;--conn:#3cc28d;--connbg:#173328;--fail:#f07467;--failbg:#3d1f1b;--frame:#6e64a8;--framebg:#23212f}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR",sans-serif}
+main{max-width:1180px;margin:0 auto;padding:24px 16px 40px}
+h1{font-size:20px;margin:0 0 4px}
+.lead{color:var(--mute);margin:0 0 16px}
+.bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;position:sticky;top:0;z-index:2;background:var(--bg);padding:8px 0}
+.bar button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:5px 12px;cursor:pointer}
+.bar button[aria-pressed="true"]{border-color:var(--ink)}
+.bar input{flex:1;min-width:140px;accent-color:var(--run)}
+.clock{font-variant-numeric:tabular-nums;min-width:64px;text-align:right}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 14px 10px}
+.head{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.head b{font-size:16px}.head span{color:var(--mute);font-size:13px}
+.card p{margin:6px 0 8px;font-size:14px}
+svg{display:block;width:100%;height:auto}
+/* 좁은 화면에서는 넓은 그림이 카드 안에서만 옆으로 스크롤된다 */
+.scroll{overflow-x:auto}.scroll svg{min-width:680px}
+svg text{fill:var(--ink);font-family:inherit}
+.t-title{font-size:12px;font-weight:600}.t-mute{fill:var(--mute);font-size:10.5px}.t-tok{font-size:10px;font-weight:700}
+.box{fill:var(--box);stroke:var(--line)}
+.frame{fill:var(--framebg);stroke:var(--frame);stroke-dasharray:4 3}
+.slot{fill:var(--card);stroke:var(--line)}
+.on{stroke-width:1.8}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin:14px 0 0;padding:0;list-style:none;font-size:13.5px;color:var(--mute)}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:50%;vertical-align:-1px;margin-right:6px;border:1.6px solid}
+.cap{color:var(--mute);font-size:13.5px;margin-top:10px}
+.query{stroke:var(--conn);stroke-width:2;stroke-dasharray:4 4;fill:none;animation:flow .6s linear infinite}
+@keyframes flow{to{stroke-dashoffset:-8}}
+@media (prefers-reduced-motion:reduce){.query{animation:none}}
+
+.figs{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+@media (max-width:1000px){.figs{grid-template-columns:1fr}}
+.scroll svg{min-width:320px}
+.cls{color:var(--mute);font-size:12px;font-family:ui-monospace,Menlo,monospace;margin:2px 0 6px;overflow-wrap:anywhere;min-height:2.9em}
+.scn{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 4px}
+.scn button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:6px 14px;cursor:pointer}
+.scn button[aria-pressed="true"]{border-color:var(--ink);font-weight:600}
+.scn-lead{color:var(--mute);font-size:14px;margin:4px 0 0}
+.box.on{stroke:var(--run);stroke-width:2}
+.chip{fill:var(--card);stroke:var(--line)}
+.chip.k-run{fill:var(--runbg);stroke:var(--run);stroke-dasharray:3 2}
+.chip.k-ok{fill:var(--connbg);stroke:var(--conn)}
+.chip.k-hold{fill:var(--holdbg);stroke:var(--hold)}
+.chip.k-bad{fill:var(--failbg);stroke:var(--fail)}
+.t-tok.k-ok,.t-resp.k-ok{fill:var(--conn)}.t-tok.k-bad,.t-resp.k-bad{fill:var(--fail)}.t-tok.k-hold{fill:var(--hold)}.t-tok.k-run{fill:var(--run)}.t-tok.k-none{fill:var(--mute);font-weight:400}
+.t-resp{font-size:13px;font-weight:700}
+.arrow{fill:none;stroke:var(--line);stroke-width:1.4}
+.arrow.on{stroke:var(--run);stroke-width:2;stroke-dasharray:4 4;animation:flow .6s linear infinite}
+@media (prefers-reduced-motion:reduce){.arrow.on{animation:none}}
+.now{min-height:2.9em;font-weight:600;margin:8px 0 4px!important}
+.steps{margin:0 0 8px;padding-left:20px;font-size:12.5px;color:var(--mute)}
+.steps li{margin:1px 0}.steps li.done{color:var(--ink)}.steps li.cur{color:var(--run);font-weight:600}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:6px 0 4px}
+.stat{border:1px solid var(--line);border-radius:8px;padding:4px 8px}
+.stat small{display:block;color:var(--mute);font-size:11.5px}
+.stat b{font-variant-numeric:tabular-nums;font-size:15px}
+.stat b.k-ok{color:var(--conn)}.stat b.k-bad{color:var(--fail)}
+</style></head>
+<body><main>
+<h1>Spring Fig 3 · 글 저장과 메시지 보내기를 어떻게 묶을까</h1>
+<p class="lead">글을 저장하면 "글이 생겼다"는 메시지를 브로커로 보내야 합니다(알림, 검색 색인 등). DB 커밋과 브로커 전송은 한 트랜잭션으로 묶을 수 없어서, 언제 보내느냐에 따라 사라지는 쪽이 달라집니다. 세 그림은 같은 시계로 움직입니다.</p>
+<div class="scn"><button data-scn="down">브로커 장애</button><button data-scn="rollback">뒤 단계 실패</button></div>
+<p class="scn-lead" data-scn-lead></p>
+<div class="bar"><button data-play>❚❚ 멈춤</button><button data-speed="0.5" aria-pressed="false">0.5×</button><button data-speed="1" aria-pressed="true">1×</button><button data-speed="2" aria-pressed="false">2×</button><input type="range" min="0" step="0.005" value="0" data-time aria-label="시간"><span class="clock" data-clock>0.00초</span></div>
+<div class="figs">
+<section class="card" data-fig="before">
+<div class="head"><b>가 · 커밋 전에 바로 보냄</b></div>
+<div class="cls">BeforeCommitPostWriter</div>
+<div class="scroll"><svg viewBox="0 0 360 196" role="img" aria-label="앱, PostgreSQL, 브로커를 위에서 본 그림">
+<path class="arrow" data-flow="app-broker" d="M64 28 V14 H300 V28"/>
+<path class="arrow" data-flow="app-db" d="M120 66 H130"/>
+
+<rect class="box" data-box="app" x="8" y="28" width="112" height="160" rx="8"/><text class="t-title" x="16" y="45">앱 · 글쓰기</text>
+<rect class="chip" data-chip="tx" x="16" y="52" width="96" height="40" rx="6"/><text class="t-mute" x="24" y="68">트랜잭션</text><text class="t-tok" data-text="tx" x="24" y="84"></text>
+
+<text class="t-mute" x="16" y="164">응답</text><text class="t-resp" data-text="resp" x="16" y="180"></text>
+<rect class="box" data-box="db" x="130" y="28" width="110" height="94" rx="8"/><text class="t-title" x="138" y="45">PostgreSQL</text>
+<rect class="chip" data-chip="post" x="138" y="52" width="94" height="28" rx="6"/><text class="t-mute" x="144" y="64">post 행</text><text class="t-tok" data-text="post" x="144" y="75"></text>
+<text class="t-mute" x="138" y="104">outbox 표 안 씀</text>
+
+<rect class="box" data-box="broker" x="250" y="28" width="102" height="160" rx="8"/><text class="t-title" x="258" y="45">브로커</text>
+<rect class="chip" data-chip="broker" x="258" y="52" width="86" height="24" rx="6"/><text class="t-tok" data-text="broker" x="266" y="68"></text>
+<rect class="chip" data-chip="msg" x="258" y="86" width="86" height="40" rx="6"/><text class="t-mute" x="266" y="102">PostCreated</text><text class="t-tok" data-text="msg" x="266" y="118"></text>
+</svg></div>
+<p class="now" data-now></p>
+<ol class="steps" data-steps></ol>
+<div class="stats"><div class="stat "><small>요청 성공</small><b data-stat="accepted">–</b></div><div class="stat "><small>저장된 글</small><b data-stat="saved">–</b></div><div class="stat "><small>보낸 메시지</small><b data-stat="sent">–</b></div><div class="stat "><small>판정</small><b data-stat="verdict">–</b></div></div>
+</section>
+<section class="card" data-fig="after">
+<div class="head"><b>나 · 커밋 후에 보냄</b></div>
+<div class="cls">AfterCommitPostWriter + @TransactionalEventListener</div>
+<div class="scroll"><svg viewBox="0 0 360 196" role="img" aria-label="앱, PostgreSQL, 브로커를 위에서 본 그림">
+<path class="arrow" data-flow="app-broker" d="M64 28 V14 H300 V28"/>
+<path class="arrow" data-flow="app-db" d="M120 66 H130"/>
+
+<rect class="box" data-box="app" x="8" y="28" width="112" height="160" rx="8"/><text class="t-title" x="16" y="45">앱 · 글쓰기</text>
+<rect class="chip" data-chip="tx" x="16" y="52" width="96" height="40" rx="6"/><text class="t-mute" x="24" y="68">트랜잭션</text><text class="t-tok" data-text="tx" x="24" y="84"></text>
+<rect class="chip" data-chip="mem" x="16" y="100" width="96" height="40" rx="6"/><text class="t-mute" x="24" y="116">메모리의 이벤트</text><text class="t-tok" data-text="mem" x="24" y="132"></text>
+<text class="t-mute" x="16" y="164">응답</text><text class="t-resp" data-text="resp" x="16" y="180"></text>
+<rect class="box" data-box="db" x="130" y="28" width="110" height="94" rx="8"/><text class="t-title" x="138" y="45">PostgreSQL</text>
+<rect class="chip" data-chip="post" x="138" y="52" width="94" height="28" rx="6"/><text class="t-mute" x="144" y="64">post 행</text><text class="t-tok" data-text="post" x="144" y="75"></text>
+<text class="t-mute" x="138" y="104">outbox 표 안 씀</text>
+
+<rect class="box" data-box="broker" x="250" y="28" width="102" height="160" rx="8"/><text class="t-title" x="258" y="45">브로커</text>
+<rect class="chip" data-chip="broker" x="258" y="52" width="86" height="24" rx="6"/><text class="t-tok" data-text="broker" x="266" y="68"></text>
+<rect class="chip" data-chip="msg" x="258" y="86" width="86" height="40" rx="6"/><text class="t-mute" x="266" y="102">PostCreated</text><text class="t-tok" data-text="msg" x="266" y="118"></text>
+</svg></div>
+<p class="now" data-now></p>
+<ol class="steps" data-steps></ol>
+<div class="stats"><div class="stat "><small>요청 성공</small><b data-stat="accepted">–</b></div><div class="stat "><small>저장된 글</small><b data-stat="saved">–</b></div><div class="stat "><small>보낸 메시지</small><b data-stat="sent">–</b></div><div class="stat "><small>판정</small><b data-stat="verdict">–</b></div></div>
+</section>
+<section class="card" data-fig="outbox">
+<div class="head"><b>다 · outbox 에 적고 릴레이가 보냄</b></div>
+<div class="cls">OutboxPostWriter + OutboxRelay</div>
+<div class="scroll"><svg viewBox="0 0 360 196" role="img" aria-label="앱, PostgreSQL, OutboxRelay, 브로커를 위에서 본 그림">
+<path class="arrow" data-flow="app-broker" d="M64 28 V14 H300 V28"/>
+<path class="arrow" data-flow="app-db" d="M120 66 H130"/>
+<path class="arrow" data-flow="relay-db" d="M185 146 V122"/><path class="arrow" data-flow="relay-broker" d="M240 166 H250"/>
+<rect class="box" data-box="app" x="8" y="28" width="112" height="160" rx="8"/><text class="t-title" x="16" y="45">앱 · 글쓰기</text>
+<rect class="chip" data-chip="tx" x="16" y="52" width="96" height="40" rx="6"/><text class="t-mute" x="24" y="68">트랜잭션</text><text class="t-tok" data-text="tx" x="24" y="84"></text>
+
+<text class="t-mute" x="16" y="164">응답</text><text class="t-resp" data-text="resp" x="16" y="180"></text>
+<rect class="box" data-box="db" x="130" y="28" width="110" height="94" rx="8"/><text class="t-title" x="138" y="45">PostgreSQL</text>
+<rect class="chip" data-chip="post" x="138" y="52" width="94" height="28" rx="6"/><text class="t-mute" x="144" y="64">post 행</text><text class="t-tok" data-text="post" x="144" y="75"></text>
+<rect class="chip" data-chip="outbox" x="138" y="86" width="94" height="28" rx="6"/><text class="t-mute" data-text="attempts" x="144" y="98">outbox</text><text class="t-tok" data-text="outbox" x="144" y="109"></text>
+<rect class="box" data-box="relay" x="130" y="146" width="110" height="42" rx="8"/><text class="t-title" x="138" y="162">OutboxRelay</text><text class="t-tok" data-text="relay" x="138" y="178"></text>
+<rect class="box" data-box="broker" x="250" y="28" width="102" height="160" rx="8"/><text class="t-title" x="258" y="45">브로커</text>
+<rect class="chip" data-chip="broker" x="258" y="52" width="86" height="24" rx="6"/><text class="t-tok" data-text="broker" x="266" y="68"></text>
+<rect class="chip" data-chip="msg" x="258" y="86" width="86" height="40" rx="6"/><text class="t-mute" x="266" y="102">PostCreated</text><text class="t-tok" data-text="msg" x="266" y="118"></text>
+</svg></div>
+<p class="now" data-now></p>
+<ol class="steps" data-steps></ol>
+<div class="stats"><div class="stat "><small>요청 성공</small><b data-stat="accepted">–</b></div><div class="stat "><small>저장된 글</small><b data-stat="saved">–</b></div><div class="stat "><small>보낸 메시지</small><b data-stat="sent">–</b></div><div class="stat "><small>판정</small><b data-stat="verdict">–</b></div></div>
+</section>
+</div>
+<ul class="legend">
+<li><i style="background:var(--runbg);border-color:var(--run);border-style:dashed;border-radius:3px"></i>커밋 전 (아직 확정 아님)</li>
+<li><i style="background:var(--connbg);border-color:var(--conn);border-radius:3px"></i>확정됨 · 받음</li>
+<li><i style="background:var(--holdbg);border-color:var(--hold);border-radius:3px"></i>맡겨 둠 · 보낼 차례</li>
+<li><i style="background:var(--failbg);border-color:var(--fail);border-radius:3px"></i>사라짐 · 실패</li>
+<li><i style="border-color:var(--run);border-radius:3px"></i>파란 테두리 = 지금 일하는 곳, 파란 점선 = 지금 오가는 호출</li>
+</ul>
+<p class="cap">아래 숫자는 글 5개를 쓴 실제 테스트(EventDeliveryExperimentTest) 결과이고, 그림의 단계 모델로 계산한 값과 같습니다. 가는 롤백된 글의 메시지가 이미 나가 버리고(유령), 브로커가 죽으면 글쓰기까지 막힙니다. 나는 커밋과 전송 사이에 틈이 있어 그 순간의 장애나 서버 종료에 메시지가 사라집니다(유실). 다는 메시지를 글과 같은 트랜잭션으로 DB에 적어 두니 둘이 함께 남거나 함께 사라지고, 보내는 일은 릴레이가 성공할 때까지 반복합니다. 대신 같은 메시지가 두 번 갈 수 있어(적어도 한 번) 받는 쪽이 event_id로 중복을 걸러야 합니다. 릴레이 두 개를 동시에 돌린 테스트에서는 SKIP LOCKED로 10건씩 나눠 가져가 20건이 중복 없이 나갔습니다. 스페이스로 재생/멈춤, ← →로 한 단계씩 옮깁니다.</p>
+<script>
+const D = {"stageSeconds":1.1,"writes":5,"scn":{"down":{"label":"브로커 장애","lead":"글을 쓰는 동안 브로커가 죽어 있다가, 응답이 나간 뒤 살아납니다.","ways":{"before":{"titles":["브로커가 죽어 있는 동안 글쓰기 요청이 들어온다","트랜잭션을 열고 글을 INSERT 한다 (아직 커밋 전)","커밋 전에 브로커로 바로 보낸다 → 브로커 장애로 예외","예외가 트랜잭션 밖으로 나가 글까지 롤백된다","503 응답. 브로커 하나 때문에 글쓰기 자체가 실패한다"],"active":["app","db","broker","db","app"],"flow":[null,"app-db","app-broker","app-db",null],"states":[{"tx":"-","post":"-","outbox":"-","attempts":0,"broker":"down","msg":"-","mem":"-","relay":"-","resp":null},{"tx":"open","post":"pending","outbox":"-","attempts":0,"broker":"down","msg":"-","mem":"-","relay":"-","resp":null},{"tx":"open","post":"pending","outbox":"-","attempts":0,"broker":"down","msg":"error","mem":"-","relay":"-","resp":null},{"tx":"rollback","post":"gone","outbox":"-","attempts":0,"broker":"down","msg":"error","mem":"-","relay":"-","resp":null},{"tx":"rollback","post":"gone","outbox":"-","attempts":0,"broker":"down","msg":"error","mem":"-","relay":"-","resp":503}],"outcome":{"accepted":0,"saved":0,"sent":0,"lost":0,"ghost":0}},"after":{"titles":["브로커가 죽어 있는 동안 글쓰기 요청이 들어온다","트랜잭션을 열고 글을 INSERT 한다 (아직 커밋 전)","이벤트를 메모리에 맡겨 두기만 한다","커밋. 글이 확정된다","AFTER_COMMIT 리스너가 보낸다 → 브로커 장애로 예외, 로그만 남는다","201 응답. 사용자는 성공으로 안다","브로커가 살아나도 다시 보내 줄 곳이 없다 → 유실"],"active":["app","db","app","db","broker","app","broker"],"flow":[null,"app-db",null,"app-db","app-broker",null,null],"states":[{"tx":"-","post":"-","outbox":"-","attempts":0,"broker":"down","msg":"-","mem":"-","relay":"-","resp":null},{"tx":"open","post":"pending","outbox":"-","attempts":0,"broker":"down","msg":"-","mem":"-","relay":"-","resp":null},{"tx":"open","post":"pending","outbox":"-","attempts":0,"broker":"down","msg":"-","mem":"held","relay":"-","resp":null},{"tx":"commit","post":"committed","outbox":"-","attempts":0,"broker":"down","msg":"-","mem":"held","relay":"-","resp":null},{"tx":"commit","post":"committed","outbox":"-","attempts":0,"broker":"down","msg":"error","mem":"dropped","relay":"-","resp":null},{"tx":"commit","post":"committed","outbox":"-","attempts":0,"broker":"down","msg":"error","mem":"dropped","relay":"-","resp":201},{"tx":"commit","post":"committed","outbox":"-","attempts":0,"broker":"up","msg":"lost","mem":"dropped","relay":"-","resp":201}],"outcome":{"accepted":5,"saved":5,"sent":0,"lost":5,"ghost":0}},"outbox":{"titles":["브로커가 죽어 있는 동안 글쓰기 요청이 들어온다","트랜잭션을 열고 글을 INSERT 한다 (아직 커밋 전)","같은 트랜잭션에서 outbox 행도 INSERT 한다","커밋. 글과 outbox 행이 함께 확정된다","201 응답. 브로커가 죽어 있어도 글쓰기는 성공한다","릴레이가 SKIP LOCKED 로 행을 잡아 보낸다 → 실패, attempts 1, 행은 그대로","브로커가 살아난다","다음 주기에 릴레이가 다시 보낸다 → 성공, published_at 을 찍는다"],"active":["app","db","db","db","app","relay","broker","relay"],"flow":[null,"app-db","app-db","app-db",null,"relay-broker",null,"relay-broker"],"states":[{"tx":"-","post":"-","outbox":"-","attempts":0,"broker":"down","msg":"-","mem":"-","relay":"-","resp":null},{"tx":"open","post":"pending","outbox":"-","attempts":0,"broker":"down","msg":"-","mem":"-","relay":"-","resp":null},{"tx":"open","post":"pending","outbox":"pending","attempts":0,"broker":"down","msg":"-","mem":"-","relay":"-","resp":null},{"tx":"commit","post":"committed","outbox":"committed","attempts":0,"broker":"down","msg":"-","mem":"-","relay":"-","resp":null},{"tx":"commit","post":"committed","outbox":"committed","attempts":0,"broker":"down","msg":"-","mem":"-","relay":"-","resp":201},{"tx":"commit","post":"committed","outbox":"committed","attempts":1,"broker":"down","msg":"error","mem":"-","relay":"fail","resp":201},{"tx":"commit","post":"committed","outbox":"committed","attempts":1,"broker":"up","msg":"-","mem":"-","relay":"idle","resp":201},{"tx":"commit","post":"committed","outbox":"sent","attempts":1,"broker":"up","msg":"sent","mem":"-","relay":"sent","resp":201}],"outcome":{"accepted":5,"saved":5,"sent":5,"lost":0,"ghost":0}}}},"rollback":{"label":"뒤 단계 실패","lead":"메시지를 맡긴 뒤, 같은 트랜잭션의 뒤 단계가 실패해 롤백됩니다. 브로커는 정상입니다.","ways":{"before":{"titles":["글쓰기 요청이 들어온다","트랜잭션을 열고 글을 INSERT 한다 (아직 커밋 전)","커밋 전에 브로커로 바로 보낸다 → 브로커가 받는다","뒤 단계가 실패해 롤백. 글은 사라진다","이미 나간 메시지는 되돌릴 수 없다 → 없는 글을 가리키는 유령 메시지","500 응답"],"active":["app","db","broker","db","broker","app"],"flow":[null,"app-db","app-broker","app-db",null,null],"states":[{"tx":"-","post":"-","outbox":"-","attempts":0,"broker":"up","msg":"-","mem":"-","relay":"-","resp":null},{"tx":"open","post":"pending","outbox":"-","attempts":0,"broker":"up","msg":"-","mem":"-","relay":"-","resp":null},{"tx":"open","post":"pending","outbox":"-","attempts":0,"broker":"up","msg":"sent","mem":"-","relay":"-","resp":null},{"tx":"rollback","post":"gone","outbox":"-","attempts":0,"broker":"up","msg":"sent","mem":"-","relay":"-","resp":null},{"tx":"rollback","post":"gone","outbox":"-","attempts":0,"broker":"up","msg":"ghost","mem":"-","relay":"-","resp":null},{"tx":"rollback","post":"gone","outbox":"-","attempts":0,"broker":"up","msg":"ghost","mem":"-","relay":"-","resp":500}],"outcome":{"accepted":0,"saved":0,"sent":5,"lost":0,"ghost":5}},"after":{"titles":["글쓰기 요청이 들어온다","트랜잭션을 열고 글을 INSERT 한다 (아직 커밋 전)","이벤트를 메모리에 맡겨 두기만 한다","뒤 단계가 실패해 롤백. 글은 사라진다","커밋되지 않았으니 리스너는 불리지 않고 이벤트도 버려진다","500 응답. 글도 메시지도 없다 (정상)"],"active":["app","db","app","db","app","app"],"flow":[null,"app-db",null,"app-db",null,null],"states":[{"tx":"-","post":"-","outbox":"-","attempts":0,"broker":"up","msg":"-","mem":"-","relay":"-","resp":null},{"tx":"open","post":"pending","outbox":"-","attempts":0,"broker":"up","msg":"-","mem":"-","relay":"-","resp":null},{"tx":"open","post":"pending","outbox":"-","attempts":0,"broker":"up","msg":"-","mem":"held","relay":"-","resp":null},{"tx":"rollback","post":"gone","outbox":"-","attempts":0,"broker":"up","msg":"-","mem":"held","relay":"-","resp":null},{"tx":"rollback","post":"gone","outbox":"-","attempts":0,"broker":"up","msg":"-","mem":"dropped","relay":"-","resp":null},{"tx":"rollback","post":"gone","outbox":"-","attempts":0,"broker":"up","msg":"-","mem":"dropped","relay":"-","resp":500}],"outcome":{"accepted":0,"saved":0,"sent":0,"lost":0,"ghost":0}},"outbox":{"titles":["글쓰기 요청이 들어온다","트랜잭션을 열고 글을 INSERT 한다 (아직 커밋 전)","같은 트랜잭션에서 outbox 행도 INSERT 한다","뒤 단계가 실패해 롤백. 글과 outbox 행이 함께 사라진다","500 응답","릴레이가 돌지만 보낼 행이 없다 (정상)"],"active":["app","db","db","db","app","relay"],"flow":[null,"app-db","app-db","app-db",null,"relay-db"],"states":[{"tx":"-","post":"-","outbox":"-","attempts":0,"broker":"up","msg":"-","mem":"-","relay":"-","resp":null},{"tx":"open","post":"pending","outbox":"-","attempts":0,"broker":"up","msg":"-","mem":"-","relay":"-","resp":null},{"tx":"open","post":"pending","outbox":"pending","attempts":0,"broker":"up","msg":"-","mem":"-","relay":"-","resp":null},{"tx":"rollback","post":"gone","outbox":"gone","attempts":0,"broker":"up","msg":"-","mem":"-","relay":"-","resp":null},{"tx":"rollback","post":"gone","outbox":"gone","attempts":0,"broker":"up","msg":"-","mem":"-","relay":"-","resp":500},{"tx":"rollback","post":"gone","outbox":"gone","attempts":0,"broker":"up","msg":"-","mem":"-","relay":"idle","resp":500}],"outcome":{"accepted":0,"saved":0,"sent":0,"lost":0,"ghost":0}}}}}};
+const LABEL = {
+  tx: { "-": ["시작 전", "none"], open: ["열림", "run"], commit: ["커밋됨", "ok"], rollback: ["롤백됨", "bad"] },
+  post: { "-": ["없음", "none"], pending: ["커밋 전", "run"], committed: ["커밋됨", "ok"], gone: ["롤백 · 없음", "bad"] },
+  outbox: { "-": ["없음", "none"], pending: ["커밋 전", "run"], committed: ["보낼 차례", "hold"], sent: ["보냄 ✓", "ok"], gone: ["롤백 · 없음", "bad"] },
+  mem: { "-": ["없음", "none"], held: ["1건 맡김", "hold"], dropped: ["사라짐", "bad"] },
+  relay: { "-": ["대기", "none"], fail: ["실패 · 다음에 재시도", "bad"], sent: ["보냄 ✓", "ok"], idle: ["대기", "none"] },
+  broker: { up: ["정상", "ok"], down: ["장애", "bad"] },
+  msg: { "-": ["없음", "none"], sent: ["받음 ✓", "ok"], ghost: ["유령 · 글 없음", "bad"], error: ["보내기 실패 ×", "bad"], lost: ["유실 · 다시 안 옴", "bad"] },
+};
+const params = new URLSearchParams(location.search);
+let scn = params.get("s") === "rollback" ? "rollback" : "down";
+const scnButtons = [...document.querySelectorAll("[data-scn]")], scnLead = document.querySelector("[data-scn-lead]");
+
+const figs = ["before","after","outbox"].map((key) => {
+  const root = document.querySelector('[data-fig="' + key + '"]');
+  const q = (s) => root.querySelector(s), qa = (s) => [...root.querySelectorAll(s)];
+  const chips = Object.fromEntries(qa("[data-chip]").map((e) => [e.dataset.chip, e]));
+  const texts = Object.fromEntries(qa("[data-text]").map((e) => [e.dataset.text, e]));
+  const boxes = qa("[data-box]"), arrows = qa("[data-flow]"), now = q("[data-now]"), steps = q("[data-steps]");
+  const stats = Object.fromEntries(qa("[data-stat]").map((e) => [e.dataset.stat, e]));
+  let shown = null, items = [];
+  function setText(name, label, kind) {
+    if (texts[name]) { texts[name].textContent = label; texts[name].setAttribute("class", (name === "resp" ? "t-resp" : "t-tok") + " k-" + kind); }
+    if (chips[name]) chips[name].setAttribute("class", "chip k-" + kind);
+  }
+  function draw(t) {
+    const w = D.scn[scn].ways[key], n = w.titles.length;
+    if (shown !== scn) { steps.innerHTML = w.titles.map((x) => "<li>" + x + "</li>").join(""); items = [...steps.children]; shown = scn; }
+    const k = Math.min(n - 1, Math.floor(t / D.stageSeconds)), s = w.states[k];
+    for (const name of ["tx", "post", "outbox", "mem", "relay", "broker", "msg"]) { const [label, kind] = LABEL[name][s[name]]; setText(name, label, kind); }
+    if (texts.attempts) texts.attempts.textContent = "outbox" + (s.attempts ? " · 실패 " + s.attempts + "회" : "");
+    setText("resp", s.resp ? String(s.resp) + (s.resp === 201 ? " 성공" : " 실패") : "아직", s.resp === 201 ? "ok" : s.resp ? "bad" : "none");
+    boxes.forEach((b) => b.setAttribute("class", "box" + (b.dataset.box === w.active[k] ? " on" : "")));
+    arrows.forEach((a) => a.setAttribute("class", "arrow" + (a.dataset.flow === w.flow[k] ? " on" : "")));
+    now.textContent = (k + 1) + ". " + w.titles[k];
+    items.forEach((li, i) => li.className = i < k ? "done" : i === k ? "cur" : "");
+    const done = t >= (n - 1) * D.stageSeconds + 0.3, o = w.outcome;
+    stats.accepted.textContent = done ? o.accepted + "/" + D.writes : "–";
+    stats.saved.textContent = done ? o.saved : "–";
+    stats.sent.textContent = done ? o.sent : "–";
+    const verdict = o.lost ? ["유실 " + o.lost, "bad"] : o.ghost ? ["유령 " + o.ghost, "bad"] : o.accepted === 0 && o.saved === 0 && o.sent === 0 && scn === "down" ? ["쓰기 실패", "bad"] : ["일치 ✓", "ok"];
+    stats.verdict.textContent = done ? verdict[0] : "–"; stats.verdict.className = done ? "k-" + verdict[1] : "";
+  }
+  return { draw };
+});
+let lastT = 0;
+window.draw = (t) => { lastT = t; figs.forEach((f) => f.draw(t)); };
+function setScn(next) {
+  scn = next; scnButtons.forEach((b) => b.setAttribute("aria-pressed", b.dataset.scn === scn)); scnLead.textContent = D.scn[scn].lead;
+  const slider = document.querySelector("[data-time]"); slider.value = 0; slider.dispatchEvent(new Event("input"));
+  document.querySelector("[data-play]").click();
+}
+scnButtons.forEach((b) => b.addEventListener("click", () => setScn(b.dataset.scn)));
+scnButtons.forEach((b) => b.setAttribute("aria-pressed", b.dataset.scn === scn)); scnLead.textContent = D.scn[scn].lead;
+
+(() => {
+const SECONDS = 9.200000000000001;
+const slider = document.querySelector("[data-time]"), clock = document.querySelector("[data-clock]"), play = document.querySelector("[data-play]");
+const speeds = [...document.querySelectorAll("[data-speed]")];
+let t = 0, playing = true, speed = 1, last = null, hold = 0;
+const params = new URLSearchParams(location.search);
+if (params.has("t")) { t = Number(params.get("t")); playing = false; }
+if (matchMedia("(prefers-reduced-motion: reduce)").matches && !params.has("t")) { t = 9.000000000000002; playing = false; }
+function render() { window.draw(t); slider.value = t; clock.textContent = t.toFixed(2) + "초"; play.textContent = playing ? "❚❚ 멈춤" : "▶ 재생"; }
+function frame(now) {
+  if (last !== null && playing && !document.hidden) {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    if (t >= SECONDS) { hold += dt; if (hold > 1.5) { t = 0; hold = 0; } }
+    else t = Math.min(SECONDS, t + dt * speed);
+    render();
+  }
+  last = now; requestAnimationFrame(frame);
+}
+slider.max = SECONDS;
+slider.addEventListener("input", () => { t = Number(slider.value); playing = false; render(); });
+play.addEventListener("click", () => { if (t >= SECONDS) t = 0; playing = !playing; render(); });
+speeds.forEach((b) => b.addEventListener("click", () => { speed = Number(b.dataset.speed); speeds.forEach((x) => x.setAttribute("aria-pressed", x === b)); playing = true; render(); }));
+document.addEventListener("keydown", (e) => {
+  if (e.key === " ") { e.preventDefault(); play.click(); }
+  if (e.key === "ArrowRight" || e.key === "ArrowLeft") { t = Math.max(0, Math.min(SECONDS, t + (e.key === "ArrowRight" ? 1.1 : -1.1))); playing = false; render(); }
+});
+render(); requestAnimationFrame(frame);
+})();
+</script>
+</main></body></html>

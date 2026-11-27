@@ -14,11 +14,13 @@
 |---|---|---|---|
 | [step01-post-api](step01-post-api) | 게시글 작성·조회 API | [Spring 01](../01-spring-basics.md) | [요청 한 건의 길](../figures/step01-request-flow) |
 | [step02-connection-pool](step02-connection-pool) | 트랜잭션 안의 외부 호출로 커넥션 풀 고갈 | [Spring 02](../02-connection-pool.md) | [커넥션 풀 고갈](../figures/step02-connection-pool) |
+| [step03-transactional-outbox](step03-transactional-outbox) | 커밋 후 이벤트 유실을 outbox + SKIP LOCKED 릴레이로 막기 | [Spring 04](../04-transactional-outbox.md) | [글 저장과 메시지 보내기](../figures/step03-transactional-outbox) |
 
 ## 두 단계 비교하기
 
 ```bash
 diff -r step01-post-api/src step02-connection-pool/src
+diff -r step02-connection-pool/src step03-transactional-outbox/src
 ```
 
 IntelliJ에서는 두 폴더를 함께 선택하고 ⌘D(Compare Directories).
@@ -32,12 +34,23 @@ docker compose up -d                       # 로컬 Postgres (127.0.0.1:5433). �
 ./gradlew :step01-post-api:bootRun         # http://localhost:8080 (한 번에 한 단계만)
 ./gradlew test                             # 모든 단계 테스트. Testcontainers로 별도 Postgres를 띄웁니다
 ./gradlew :step02-connection-pool:test --tests '*PoolExhaustion*' -i | grep 실험
+./gradlew :step03-transactional-outbox:test --tests '*EventDelivery*' -i | grep 실험
 ```
 
 ```bash
 curl -XPOST localhost:8080/posts -H 'content-type: application/json' \
   -d '{"authorId":1,"regionId":100,"content":"붕어빵 파는 곳 있나요?"}'
 curl 'localhost:8080/posts?regionId=100'
+```
+
+step03 에서 브로커 장애를 손으로 재현하기:
+
+```bash
+curl -XPOST 'localhost:8080/experiments/events/broker?down=true'   # 브로커 끄기
+curl -XPOST localhost:8080/experiments/events/outbox -H 'content-type: application/json' \
+  -d '{"authorId":1,"regionId":100,"content":"벼룩시장 열려요"}'          # 201, outbox 행만 남음
+curl -XPOST 'localhost:8080/experiments/events/broker?down=false'  # 브로커 켜기 → 1초 안에 릴레이가 보냄
+curl localhost:8080/experiments/events/broker                      # {"down":false,"received":1}
 ```
 
 ## 그림 다시 만들기

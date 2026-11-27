@@ -1,0 +1,35 @@
+spring:
+  application:
+    name: community
+  datasource:
+    url: jdbc:postgresql://127.0.0.1:5433/community?currentSchema=step03
+    username: community
+    password: community
+    hikari:
+      # 기본값도 10. 실험 ①에서 이 값을 줄여 풀 고갈을 재현한다.
+      maximum-pool-size: 10
+  flyway:
+    # 단계마다 스키마를 나눠 같은 로컬 DB 를 써도 테이블이 섞이지 않게 한다
+    schemas: step03
+  jpa:
+    # 기본값 true. 켜 두면 요청이 끝날 때까지 DB 커넥션을 쥐고 있다. 실험 ①과 직접 관련된다.
+    open-in-view: false
+    hibernate:
+      # 스키마는 Flyway 가 만들고, Hibernate 는 엔티티와 맞는지만 확인한다.
+      ddl-auto: validate
+    properties:
+      hibernate.default_schema: step03
+  mvc:
+    problemdetails:
+      enabled: true
+
+outbox:
+  relay:
+    # 아직 안 보낸 outbox 행을 몇 초마다 브로커로 보낼지
+    interval: PT1S
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics

@@ -4,4 +4,5 @@ rootProject.name = "spring-lab"
 include(
     "step01-post-api",
     "step02-connection-pool",
+    "step03-transactional-outbox",
 )

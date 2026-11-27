@@ -51,7 +51,7 @@ HikariPool-1 - Connection is not available, request timed out after 1004ms (tota
 
 ## 정리: 설계할 때 지킬 것
 
-1. **외부 호출은 트랜잭션 밖으로.** 결과가 저장에 꼭 필요하면 먼저 호출하고(이번 좋은 버전), 필요 없으면 커밋 후 이벤트로 뒤로 보낸다. 결제 Saga에서 PG 승인을 블록으로 분리했던 것과 같은 생각이다.
+1. **외부 호출은 트랜잭션 밖으로.** 결과가 저장에 꼭 필요하면 먼저 호출하고(이번 좋은 버전), 필요 없으면 커밋 후 이벤트로 뒤로 보낸다. 커밋 후 이벤트가 사라지는 틈은 [04. Transactional Outbox](04-transactional-outbox.md)에서 다룬다. 결제 Saga에서 PG 승인을 블록으로 분리했던 것과 같은 생각이다.
 2. **외부 호출에는 반드시 타임아웃.** 0.5초가 30초가 되면 풀도 30초 동안 막힌다. 회로 차단기는 다음 노트에서 다룬다.
 3. **풀 크기를 무작정 키우지 않는다.** DB가 감당할 커넥션 수는 정해져 있고(`Pod 수 × 풀 크기`가 DB `max_connections`를 넘으면 안 됨), 커넥션이 많다고 빨라지지 않는다. HikariCP 문서의 출발점은 `코어 수 × 2 + 디스크 수` 정도다.
 4. **지표로 미리 본다.** Actuator가 `hikaricp.connections.pending`(대기 스레드), `hikaricp.connections.active`, `hikaricp.connections.acquire`(커넥션 얻는 데 걸린 시간)를 내보낸다. pending이 0보다 커지기 시작하면 장애 전 신호다.
