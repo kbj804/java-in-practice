@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>커넥션 풀 고갈</title><style>
+:root{--bg:#f6f5f1;--card:#fff;--ink:#1d1d1b;--mute:#6b6a65;--line:#d9d7cf;--box:#fbfaf7;
+--run:#2f6fe4;--runbg:#e3ecfd;--hold:#e08a1e;--holdbg:#fdf0dc;--conn:#1f9d6b;--connbg:#e1f5ec;--fail:#d4483b;--failbg:#fbe4e1;--frame:#b9aee0;--framebg:#f6f4fc}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#141413;--card:#1e1e1c;--ink:#ecebe6;--mute:#9b9a94;--line:#3a3935;--box:#252522;
+--run:#6c9cff;--runbg:#1d2a45;--hold:#f0a443;--holdbg:#3b2c17;--conn:#3cc28d;--connbg:#173328;--fail:#f07467;--failbg:#3d1f1b;--frame:#6e64a8;--framebg:#23212f}}
+:root[data-theme="dark"]{--bg:#141413;--card:#1e1e1c;--ink:#ecebe6;--mute:#9b9a94;--line:#3a3935;--box:#252522;
+--run:#6c9cff;--runbg:#1d2a45;--hold:#f0a443;--holdbg:#3b2c17;--conn:#3cc28d;--connbg:#173328;--fail:#f07467;--failbg:#3d1f1b;--frame:#6e64a8;--framebg:#23212f}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR",sans-serif}
+main{max-width:1180px;margin:0 auto;padding:24px 16px 40px}
+h1{font-size:20px;margin:0 0 4px}
+.lead{color:var(--mute);margin:0 0 16px}
+.bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;position:sticky;top:0;z-index:2;background:var(--bg);padding:8px 0}
+.bar button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:5px 12px;cursor:pointer}
+.bar button[aria-pressed="true"]{border-color:var(--ink)}
+.bar input{flex:1;min-width:140px;accent-color:var(--run)}
+.clock{font-variant-numeric:tabular-nums;min-width:64px;text-align:right}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 14px 10px}
+.head{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.head b{font-size:16px}.head span{color:var(--mute);font-size:13px}
+.card p{margin:6px 0 8px;font-size:14px}
+svg{display:block;width:100%;height:auto}
+/* 좁은 화면에서는 넓은 그림이 카드 안에서만 옆으로 스크롤된다 */
+.scroll{overflow-x:auto}.scroll svg{min-width:680px}
+svg text{fill:var(--ink);font-family:inherit}
+.t-title{font-size:12px;font-weight:600}.t-mute{fill:var(--mute);font-size:10.5px}.t-tok{font-size:10px;font-weight:700}
+.box{fill:var(--box);stroke:var(--line)}
+.frame{fill:var(--framebg);stroke:var(--frame);stroke-dasharray:4 3}
+.slot{fill:var(--card);stroke:var(--line)}
+.on{stroke-width:1.8}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin:14px 0 0;padding:0;list-style:none;font-size:13.5px;color:var(--mute)}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:50%;vertical-align:-1px;margin-right:6px;border:1.6px solid}
+.cap{color:var(--mute);font-size:13.5px;margin-top:10px}
+.query{stroke:var(--conn);stroke-width:2;stroke-dasharray:4 4;fill:none;animation:flow .6s linear infinite}
+@keyframes flow{to{stroke-dashoffset:-8}}
+@media (prefers-reduced-motion:reduce){.query{animation:none}}
+
+.figs{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:900px){.figs{grid-template-columns:1fr}}
+.slot.s-tag{fill:var(--runbg);stroke:var(--run);stroke-width:1.6}
+.slot.s-cwait{fill:var(--card);stroke:var(--hold);stroke-width:1.6;stroke-dasharray:3 2}
+.slot.s-holdtag{fill:var(--holdbg);stroke:var(--hold);stroke-width:1.6}
+.slot.s-query{fill:var(--connbg);stroke:var(--conn);stroke-width:1.6}
+.slot.s-ok{fill:var(--line);stroke:var(--line)}
+.slot.s-fail{fill:var(--failbg);stroke:var(--fail);stroke-width:1.6}
+.slot.c-holdtag{fill:var(--holdbg);stroke:var(--hold);stroke-width:1.6}
+.slot.c-query{fill:var(--connbg);stroke:var(--conn);stroke-width:1.6}
+.t-tok.s-ok{fill:var(--mute)}.t-tok.s-fail{fill:var(--fail)}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:6px 0 4px}
+.stat{border:1px solid var(--line);border-radius:8px;padding:4px 8px}
+.stat small{display:block;color:var(--mute);font-size:11.5px}
+.stat b{font-variant-numeric:tabular-nums;font-size:16px}
+.stat.warn b{color:var(--hold)}.stat.good b{color:var(--conn)}.stat.bad b{color:var(--fail)}
+@media (max-width:520px){.stats{grid-template-columns:1fr 1fr}}
+.g-row{fill:none;stroke:var(--line)}.g-holdtag{fill:var(--hold)}.g-query{fill:var(--conn)}.g-wait{fill:var(--hold);opacity:.55}
+.g-fail{stroke:var(--fail);stroke-dasharray:3 2}
+.playhead{stroke:var(--ink);stroke-width:1.2}
+</style></head>
+<body><main>
+<h1>Spring Fig 2 · 트랜잭션 안의 외부 호출과 커넥션 풀 고갈</h1>
+<p class="lead">게시글 요청 20개가 동시에 들어옵니다. 저장할 때 외부 LLM으로 장소 태그를 뽑고(0.5초), 커넥션은 3개, 커넥션 대기 한도는 1초입니다. 두 그림은 같은 시계로 움직입니다.</p>
+<div class="bar"><button data-play>❚❚ 멈춤</button><button data-speed="0.1" aria-pressed="false">0.1×</button><button data-speed="0.25" aria-pressed="true">0.25×</button><button data-speed="1" aria-pressed="false">1×</button><input type="range" min="0" step="0.005" value="0" data-time aria-label="시간"><span class="clock" data-clock>0.00초</span></div>
+<div class="figs">
+<section class="card" data-fig="inside">
+<div class="head"><b>2a · 트랜잭션 안에서 외부 호출</b><span>InsideTxPostWriter</span></div>
+<p>커넥션을 쥔 채 0.5초를 기다리니 커넥션 하나가 0.5초에 요청 하나만 처리합니다. 0.5초에 3개, 1.0초에 다음 3개만 끝나고, 나머지 14개는 1초 대기 한도에 걸려 실패합니다. 그동안 DB는 거의 놀고 있습니다.</p>
+<svg viewBox="0 0 480 240" role="img" aria-label="트랜잭션 안에서 외부 호출: 요청 스레드 20개, 외부 LLM, 커넥션 풀 3개, DB 를 위에서 본 그림">
+<rect class="box" x="10" y="28" width="206" height="186" rx="8"/><text class="t-title" x="18" y="46">Tomcat 스레드 · 요청 20개</text><rect class="slot" data-th="0" x="18" y="56" width="44" height="24" rx="6"/><text class="t-tok" data-tht="0" x="40" y="71.5" text-anchor="middle">R1</text><rect class="slot" data-th="1" x="66" y="56" width="44" height="24" rx="6"/><text class="t-tok" data-tht="1" x="88" y="71.5" text-anchor="middle">R2</text><rect class="slot" data-th="2" x="114" y="56" width="44" height="24" rx="6"/><text class="t-tok" data-tht="2" x="136" y="71.5" text-anchor="middle">R3</text><rect class="slot" data-th="3" x="162" y="56" width="44" height="24" rx="6"/><text class="t-tok" data-tht="3" x="184" y="71.5" text-anchor="middle">R4</text><rect class="slot" data-th="4" x="18" y="84" width="44" height="24" rx="6"/><text class="t-tok" data-tht="4" x="40" y="99.5" text-anchor="middle">R5</text><rect class="slot" data-th="5" x="66" y="84" width="44" height="24" rx="6"/><text class="t-tok" data-tht="5" x="88" y="99.5" text-anchor="middle">R6</text><rect class="slot" data-th="6" x="114" y="84" width="44" height="24" rx="6"/><text class="t-tok" data-tht="6" x="136" y="99.5" text-anchor="middle">R7</text><rect class="slot" data-th="7" x="162" y="84" width="44" height="24" rx="6"/><text class="t-tok" data-tht="7" x="184" y="99.5" text-anchor="middle">R8</text><rect class="slot" data-th="8" x="18" y="112" width="44" height="24" rx="6"/><text class="t-tok" data-tht="8" x="40" y="127.5" text-anchor="middle">R9</text><rect class="slot" data-th="9" x="66" y="112" width="44" height="24" rx="6"/><text class="t-tok" data-tht="9" x="88" y="127.5" text-anchor="middle">R10</text><rect class="slot" data-th="10" x="114" y="112" width="44" height="24" rx="6"/><text class="t-tok" data-tht="10" x="136" y="127.5" text-anchor="middle">R11</text><rect class="slot" data-th="11" x="162" y="112" width="44" height="24" rx="6"/><text class="t-tok" data-tht="11" x="184" y="127.5" text-anchor="middle">R12</text><rect class="slot" data-th="12" x="18" y="140" width="44" height="24" rx="6"/><text class="t-tok" data-tht="12" x="40" y="155.5" text-anchor="middle">R13</text><rect class="slot" data-th="13" x="66" y="140" width="44" height="24" rx="6"/><text class="t-tok" data-tht="13" x="88" y="155.5" text-anchor="middle">R14</text><rect class="slot" data-th="14" x="114" y="140" width="44" height="24" rx="6"/><text class="t-tok" data-tht="14" x="136" y="155.5" text-anchor="middle">R15</text><rect class="slot" data-th="15" x="162" y="140" width="44" height="24" rx="6"/><text class="t-tok" data-tht="15" x="184" y="155.5" text-anchor="middle">R16</text><rect class="slot" data-th="16" x="18" y="168" width="44" height="24" rx="6"/><text class="t-tok" data-tht="16" x="40" y="183.5" text-anchor="middle">R17</text><rect class="slot" data-th="17" x="66" y="168" width="44" height="24" rx="6"/><text class="t-tok" data-tht="17" x="88" y="183.5" text-anchor="middle">R18</text><rect class="slot" data-th="18" x="114" y="168" width="44" height="24" rx="6"/><text class="t-tok" data-tht="18" x="136" y="183.5" text-anchor="middle">R19</text><rect class="slot" data-th="19" x="162" y="168" width="44" height="24" rx="6"/><text class="t-tok" data-tht="19" x="184" y="183.5" text-anchor="middle">R20</text>
+<rect class="box" x="228" y="28" width="118" height="64" rx="8"/><text class="t-title" x="236" y="46">외부 LLM</text><text class="t-mute" x="236" y="62">응답 0.5초</text>
+<text class="t-tok" data-ext x="236" y="82"></text>
+<rect class="box" x="358" y="28" width="112" height="64" rx="8"/><text class="t-title" x="366" y="46">결과</text>
+<text class="t-tok" data-ok x="366" y="66" style="fill:var(--conn)"></text><text class="t-tok" data-fail x="366" y="82" style="fill:var(--fail)"></text>
+<rect class="box" x="228" y="104" width="118" height="110" rx="8"/><text class="t-title" x="236" y="120">커넥션 풀 3</text><rect class="slot" data-conn="0" x="236" y="126" width="102" height="20" rx="6"/><text class="t-mute" x="243" y="140">C1</text><text class="t-tok" data-conntext="0" x="300" y="140" text-anchor="middle"></text><path class="query" data-query="0" d="M338 136 H358" style="display:none"/><rect class="slot" data-conn="1" x="236" y="150" width="102" height="20" rx="6"/><text class="t-mute" x="243" y="164">C2</text><text class="t-tok" data-conntext="1" x="300" y="164" text-anchor="middle"></text><path class="query" data-query="1" d="M338 160 H358" style="display:none"/><rect class="slot" data-conn="2" x="236" y="174" width="102" height="20" rx="6"/><text class="t-mute" x="243" y="188">C3</text><text class="t-tok" data-conntext="2" x="300" y="188" text-anchor="middle"></text><path class="query" data-query="2" d="M338 184 H358" style="display:none"/><text class="t-mute" x="236" y="208">대기 한도 1초</text>
+<rect class="box" x="358" y="104" width="112" height="110" rx="8"/><text class="t-title" x="366" y="122">PostgreSQL</text><text class="t-mute" x="366" y="138">쿼리 10ms</text>
+<text class="t-mute" x="10" y="232">주황 칸 = 커넥션을 쥔 채 외부 응답을 기다리는 요청. 커넥션 칸에 쥔 요청 번호가 나옵니다</text>
+</svg>
+<div class="stats"><div class="stat warn"><small>커넥션 대기</small><b data-stat="wait">0</b></div><div class="stat "><small>쓰는 커넥션</small><b data-stat="conn">0</b></div><div class="stat good"><small>성공</small><b data-stat="ok">0</b></div><div class="stat bad"><small>실패</small><b data-stat="fail">0</b></div></div>
+<svg viewBox="0 0 480 112" role="img" aria-label="시간 막대: 커넥션 3개를 누가 언제 썼는지와 커넥션 대기 수" data-gantt="inside"></svg>
+</section>
+<section class="card" data-fig="outside">
+<div class="head"><b>2b · 외부 호출 뒤 짧은 트랜잭션</b><span>OutsideTxPostWriter</span></div>
+<p>외부 호출은 커넥션 없이 20개가 동시에 기다립니다. 0.5초에 20개가 한꺼번에 저장하러 몰려 줄이 생기지만, 저장은 10ms라 70ms 만에 줄이 빠지고 모두 성공합니다.</p>
+<svg viewBox="0 0 480 240" role="img" aria-label="외부 호출 뒤 짧은 트랜잭션: 요청 스레드 20개, 외부 LLM, 커넥션 풀 3개, DB 를 위에서 본 그림">
+<rect class="box" x="10" y="28" width="206" height="186" rx="8"/><text class="t-title" x="18" y="46">Tomcat 스레드 · 요청 20개</text><rect class="slot" data-th="0" x="18" y="56" width="44" height="24" rx="6"/><text class="t-tok" data-tht="0" x="40" y="71.5" text-anchor="middle">R1</text><rect class="slot" data-th="1" x="66" y="56" width="44" height="24" rx="6"/><text class="t-tok" data-tht="1" x="88" y="71.5" text-anchor="middle">R2</text><rect class="slot" data-th="2" x="114" y="56" width="44" height="24" rx="6"/><text class="t-tok" data-tht="2" x="136" y="71.5" text-anchor="middle">R3</text><rect class="slot" data-th="3" x="162" y="56" width="44" height="24" rx="6"/><text class="t-tok" data-tht="3" x="184" y="71.5" text-anchor="middle">R4</text><rect class="slot" data-th="4" x="18" y="84" width="44" height="24" rx="6"/><text class="t-tok" data-tht="4" x="40" y="99.5" text-anchor="middle">R5</text><rect class="slot" data-th="5" x="66" y="84" width="44" height="24" rx="6"/><text class="t-tok" data-tht="5" x="88" y="99.5" text-anchor="middle">R6</text><rect class="slot" data-th="6" x="114" y="84" width="44" height="24" rx="6"/><text class="t-tok" data-tht="6" x="136" y="99.5" text-anchor="middle">R7</text><rect class="slot" data-th="7" x="162" y="84" width="44" height="24" rx="6"/><text class="t-tok" data-tht="7" x="184" y="99.5" text-anchor="middle">R8</text><rect class="slot" data-th="8" x="18" y="112" width="44" height="24" rx="6"/><text class="t-tok" data-tht="8" x="40" y="127.5" text-anchor="middle">R9</text><rect class="slot" data-th="9" x="66" y="112" width="44" height="24" rx="6"/><text class="t-tok" data-tht="9" x="88" y="127.5" text-anchor="middle">R10</text><rect class="slot" data-th="10" x="114" y="112" width="44" height="24" rx="6"/><text class="t-tok" data-tht="10" x="136" y="127.5" text-anchor="middle">R11</text><rect class="slot" data-th="11" x="162" y="112" width="44" height="24" rx="6"/><text class="t-tok" data-tht="11" x="184" y="127.5" text-anchor="middle">R12</text><rect class="slot" data-th="12" x="18" y="140" width="44" height="24" rx="6"/><text class="t-tok" data-tht="12" x="40" y="155.5" text-anchor="middle">R13</text><rect class="slot" data-th="13" x="66" y="140" width="44" height="24" rx="6"/><text class="t-tok" data-tht="13" x="88" y="155.5" text-anchor="middle">R14</text><rect class="slot" data-th="14" x="114" y="140" width="44" height="24" rx="6"/><text class="t-tok" data-tht="14" x="136" y="155.5" text-anchor="middle">R15</text><rect class="slot" data-th="15" x="162" y="140" width="44" height="24" rx="6"/><text class="t-tok" data-tht="15" x="184" y="155.5" text-anchor="middle">R16</text><rect class="slot" data-th="16" x="18" y="168" width="44" height="24" rx="6"/><text class="t-tok" data-tht="16" x="40" y="183.5" text-anchor="middle">R17</text><rect class="slot" data-th="17" x="66" y="168" width="44" height="24" rx="6"/><text class="t-tok" data-tht="17" x="88" y="183.5" text-anchor="middle">R18</text><rect class="slot" data-th="18" x="114" y="168" width="44" height="24" rx="6"/><text class="t-tok" data-tht="18" x="136" y="183.5" text-anchor="middle">R19</text><rect class="slot" data-th="19" x="162" y="168" width="44" height="24" rx="6"/><text class="t-tok" data-tht="19" x="184" y="183.5" text-anchor="middle">R20</text>
+<rect class="box" x="228" y="28" width="118" height="64" rx="8"/><text class="t-title" x="236" y="46">외부 LLM</text><text class="t-mute" x="236" y="62">응답 0.5초</text>
+<text class="t-tok" data-ext x="236" y="82"></text>
+<rect class="box" x="358" y="28" width="112" height="64" rx="8"/><text class="t-title" x="366" y="46">결과</text>
+<text class="t-tok" data-ok x="366" y="66" style="fill:var(--conn)"></text><text class="t-tok" data-fail x="366" y="82" style="fill:var(--fail)"></text>
+<rect class="box" x="228" y="104" width="118" height="110" rx="8"/><text class="t-title" x="236" y="120">커넥션 풀 3</text><rect class="slot" data-conn="0" x="236" y="126" width="102" height="20" rx="6"/><text class="t-mute" x="243" y="140">C1</text><text class="t-tok" data-conntext="0" x="300" y="140" text-anchor="middle"></text><path class="query" data-query="0" d="M338 136 H358" style="display:none"/><rect class="slot" data-conn="1" x="236" y="150" width="102" height="20" rx="6"/><text class="t-mute" x="243" y="164">C2</text><text class="t-tok" data-conntext="1" x="300" y="164" text-anchor="middle"></text><path class="query" data-query="1" d="M338 160 H358" style="display:none"/><rect class="slot" data-conn="2" x="236" y="174" width="102" height="20" rx="6"/><text class="t-mute" x="243" y="188">C3</text><text class="t-tok" data-conntext="2" x="300" y="188" text-anchor="middle"></text><path class="query" data-query="2" d="M338 184 H358" style="display:none"/><text class="t-mute" x="236" y="208">대기 한도 1초</text>
+<rect class="box" x="358" y="104" width="112" height="110" rx="8"/><text class="t-title" x="366" y="122">PostgreSQL</text><text class="t-mute" x="366" y="138">쿼리 10ms</text>
+<text class="t-mute" x="10" y="232">외부 호출은 커넥션 없이 기다리고(파랑), 저장할 때만 커넥션을 씁니다</text>
+</svg>
+<div class="stats"><div class="stat warn"><small>커넥션 대기</small><b data-stat="wait">0</b></div><div class="stat "><small>쓰는 커넥션</small><b data-stat="conn">0</b></div><div class="stat good"><small>성공</small><b data-stat="ok">0</b></div><div class="stat bad"><small>실패</small><b data-stat="fail">0</b></div></div>
+<svg viewBox="0 0 480 112" role="img" aria-label="시간 막대: 커넥션 3개를 누가 언제 썼는지와 커넥션 대기 수" data-gantt="outside"></svg>
+</section>
+</div>
+<ul class="legend">
+<li><i style="background:var(--runbg);border-color:var(--run);border-radius:3px"></i>커넥션 없이 외부 응답 대기</li>
+<li><i style="background:var(--card);border-color:var(--hold);border-style:dashed;border-radius:3px"></i>커넥션 대기</li>
+<li><i style="background:var(--holdbg);border-color:var(--hold);border-radius:3px"></i>커넥션을 쥔 채 외부 응답 대기</li>
+<li><i style="background:var(--connbg);border-color:var(--conn);border-radius:3px"></i>커넥션으로 쿼리 (초록 점선 = DB로 가는 SQL)</li>
+<li><i style="background:var(--line);border-color:var(--line);border-radius:3px"></i>성공 ✓</li>
+<li><i style="background:var(--failbg);border-color:var(--fail);border-radius:3px"></i>실패 ×</li>
+</ul>
+<p class="cap">처리량 상한은 풀 크기 ÷ 커넥션을 쥐는 시간입니다. 2a는 3 ÷ 0.5초 = 초당 6건이라 1초 안에 6개만 끝납니다. 2b도 커넥션 대기가 생기지만(최대 17개) 쥐는 시간이 10ms라 금방 빠집니다. 줄이 생기는 것보다 줄이 빠지는 속도가 중요합니다. 그림은 모델로 계산한 시간이고, 실제 테스트(PoolExhaustionExperimentTest)에서는 2a가 1,164ms에 성공 6 / 실패 14, 2b가 541ms에 20 / 0이었습니다. 차이는 HTTP와 Spring 처리 시간입니다. 스페이스로 재생/멈춤, ← →로 0.01초씩 옮깁니다.</p>
+<script>
+const D = {"setup":{"requests":20,"pool":3,"timeout":1,"external":0.5,"query":0.01},"seconds":1.25,"inside":{"reqs":[{"id":"R1","hist":[[0,"holdtag"],[0.5,"query"],[0.51,"ok"]]},{"id":"R2","hist":[[0,"holdtag"],[0.5,"query"],[0.51,"ok"]]},{"id":"R3","hist":[[0,"holdtag"],[0.5,"query"],[0.51,"ok"]]},{"id":"R4","hist":[[0,"cwait"],[0.51,"holdtag"],[1.01,"query"],[1.02,"ok"]]},{"id":"R5","hist":[[0,"cwait"],[0.51,"holdtag"],[1.01,"query"],[1.02,"ok"]]},{"id":"R6","hist":[[0,"cwait"],[0.51,"holdtag"],[1.01,"query"],[1.02,"ok"]]},{"id":"R7","hist":[[0,"cwait"],[1,"fail"]]},{"id":"R8","hist":[[0,"cwait"],[1,"fail"]]},{"id":"R9","hist":[[0,"cwait"],[1,"fail"]]},{"id":"R10","hist":[[0,"cwait"],[1,"fail"]]},{"id":"R11","hist":[[0,"cwait"],[1,"fail"]]},{"id":"R12","hist":[[0,"cwait"],[1,"fail"]]},{"id":"R13","hist":[[0,"cwait"],[1,"fail"]]},{"id":"R14","hist":[[0,"cwait"],[1,"fail"]]},{"id":"R15","hist":[[0,"cwait"],[1,"fail"]]},{"id":"R16","hist":[[0,"cwait"],[1,"fail"]]},{"id":"R17","hist":[[0,"cwait"],[1,"fail"]]},{"id":"R18","hist":[[0,"cwait"],[1,"fail"]]},{"id":"R19","hist":[[0,"cwait"],[1,"fail"]]},{"id":"R20","hist":[[0,"cwait"],[1,"fail"]]}],"conns":[[[0,0.5,"R1","holdtag"],[0.5,0.51,"R1","query"],[0.51,1.01,"R4","holdtag"],[1.01,1.02,"R4","query"]],[[0,0.5,"R2","holdtag"],[0.5,0.51,"R2","query"],[0.51,1.01,"R5","holdtag"],[1.01,1.02,"R5","query"]],[[0,0.5,"R3","holdtag"],[0.5,0.51,"R3","query"],[0.51,1.01,"R6","holdtag"],[1.01,1.02,"R6","query"]]],"waiting":[17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,0,0,0,0,0],"dt":0.005,"ok":6,"fail":14,"end":1.02},"outside":{"reqs":[{"id":"R1","hist":[[0,"tag"],[0.5,"query"],[0.51,"ok"]]},{"id":"R2","hist":[[0,"tag"],[0.5,"query"],[0.51,"ok"]]},{"id":"R3","hist":[[0,"tag"],[0.5,"query"],[0.51,"ok"]]},{"id":"R4","hist":[[0,"tag"],[0.5,"cwait"],[0.51,"query"],[0.52,"ok"]]},{"id":"R5","hist":[[0,"tag"],[0.5,"cwait"],[0.51,"query"],[0.52,"ok"]]},{"id":"R6","hist":[[0,"tag"],[0.5,"cwait"],[0.51,"query"],[0.52,"ok"]]},{"id":"R7","hist":[[0,"tag"],[0.5,"cwait"],[0.52,"query"],[0.53,"ok"]]},{"id":"R8","hist":[[0,"tag"],[0.5,"cwait"],[0.52,"query"],[0.53,"ok"]]},{"id":"R9","hist":[[0,"tag"],[0.5,"cwait"],[0.52,"query"],[0.53,"ok"]]},{"id":"R10","hist":[[0,"tag"],[0.5,"cwait"],[0.53,"query"],[0.54,"ok"]]},{"id":"R11","hist":[[0,"tag"],[0.5,"cwait"],[0.53,"query"],[0.54,"ok"]]},{"id":"R12","hist":[[0,"tag"],[0.5,"cwait"],[0.53,"query"],[0.54,"ok"]]},{"id":"R13","hist":[[0,"tag"],[0.5,"cwait"],[0.54,"query"],[0.55,"ok"]]},{"id":"R14","hist":[[0,"tag"],[0.5,"cwait"],[0.54,"query"],[0.55,"ok"]]},{"id":"R15","hist":[[0,"tag"],[0.5,"cwait"],[0.54,"query"],[0.55,"ok"]]},{"id":"R16","hist":[[0,"tag"],[0.5,"cwait"],[0.55,"query"],[0.56,"ok"]]},{"id":"R17","hist":[[0,"tag"],[0.5,"cwait"],[0.55,"query"],[0.56,"ok"]]},{"id":"R18","hist":[[0,"tag"],[0.5,"cwait"],[0.55,"query"],[0.56,"ok"]]},{"id":"R19","hist":[[0,"tag"],[0.5,"cwait"],[0.56,"query"],[0.57,"ok"]]},{"id":"R20","hist":[[0,"tag"],[0.5,"cwait"],[0.56,"query"],[0.57,"ok"]]}],"conns":[[[0.5,0.51,"R1","query"],[0.51,0.52,"R4","query"],[0.52,0.53,"R7","query"],[0.53,0.54,"R10","query"],[0.54,0.55,"R13","query"],[0.55,0.56,"R16","query"],[0.56,0.57,"R19","query"]],[[0.5,0.51,"R2","query"],[0.51,0.52,"R5","query"],[0.52,0.53,"R8","query"],[0.53,0.54,"R11","query"],[0.54,0.55,"R14","query"],[0.55,0.56,"R17","query"],[0.56,0.57,"R20","query"]],[[0.5,0.51,"R3","query"],[0.51,0.52,"R6","query"],[0.52,0.53,"R9","query"],[0.53,0.54,"R12","query"],[0.54,0.55,"R15","query"],[0.55,0.56,"R18","query"]]],"waiting":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,17,17,14,14,11,11,8,8,5,5,2,2,0,0,0],"dt":0.005,"ok":20,"fail":0,"end":0.57}};
+const NS = "http://www.w3.org/2000/svg";
+const el = (tag, attrs, parent) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); parent && parent.appendChild(e); return e; };
+const connY = (s) => 126 + s * 24;
+const stateAt = (req, t) => { if (req.hist[0][0] > t + 1e-9) return "pend"; let s = req.hist[0][1]; for (const [at, st] of req.hist) if (at <= t + 1e-9) s = st; return s; };
+const AX = { x0: 62, x1: 470 }, X = (t) => AX.x0 + (t / D.seconds) * (AX.x1 - AX.x0);
+
+const figs = ["inside", "outside"].map((key) => {
+  const root = document.querySelector('[data-fig="' + key + '"]'), sim = D[key];
+  const q = (s) => root.querySelector(s), qa = (s) => [...root.querySelectorAll(s)];
+  const th = qa("[data-th]"), tht = qa("[data-tht]"), connRects = qa("[data-conn]"), connTexts = qa("[data-conntext]"), queries = qa("[data-query]");
+  const ext = q("[data-ext]"), okT = q("[data-ok]"), failT = q("[data-fail]");
+  const stats = Object.fromEntries(qa("[data-stat]").map((e) => [e.dataset.stat, e]));
+
+  // 시간 막대: 커넥션 3줄(주황 = 쥔 채 외부 대기, 초록 = 쿼리) + 커넥션 대기 수
+  const g = q("[data-gantt]");
+  [0, 1, 2].forEach((s) => {
+    const y = 6 + s * 15;
+    el("rect", { class: "g-row", x: AX.x0, y, width: AX.x1 - AX.x0, height: 11, rx: 2 }, g);
+    el("text", { class: "t-mute", x: 8, y: y + 9 }, g).textContent = "커넥션 C" + (s + 1);
+    sim.conns[s].forEach(([a, b, id, k]) => el("rect", { class: "g-" + k, x: X(a), y, width: Math.max(1.2, X(b) - X(a)), height: 11, rx: 2 }, g));
+  });
+  const WY = 52, WH = 34, max = D.setup.requests;
+  el("rect", { class: "g-row", x: AX.x0, y: WY, width: AX.x1 - AX.x0, height: WH, rx: 2 }, g);
+  el("text", { class: "t-mute", x: 8, y: WY + 14 }, g).textContent = "커넥션";
+  el("text", { class: "t-mute", x: 8, y: WY + 27 }, g).textContent = "대기 수";
+  sim.waiting.forEach((n, k) => { if (n) { const h = (n / max) * (WH - 2); el("rect", { class: "g-wait", x: X(k * sim.dt), y: WY + WH - 1 - h, width: Math.max(0.8, X(sim.dt) - X(0)), height: h }, g); } });
+  const failAt = sim.reqs.map((r) => r.hist[r.hist.length - 1]).filter(([, s]) => s === "fail").map(([t]) => t);
+  if (failAt.length) {
+    const fx = X(failAt[0]);
+    el("line", { class: "g-fail", x1: fx, x2: fx, y1: 2, y2: WY + WH + 2 }, g);
+    const ft = el("text", { class: "t-tok", x: fx - 4, y: WY + 12, "text-anchor": "end", style: "fill:var(--fail)" }, g); ft.textContent = failAt.length + "개 실패";
+  }
+  for (let k = 0; k <= 6; k++) { const sec = k * 0.2; el("text", { class: "t-mute", x: X(sec), y: 104, "text-anchor": "middle" }, g).textContent = sec.toFixed(1) + "s"; }
+  const head = el("line", { class: "playhead", x1: AX.x0, x2: AX.x0, y1: 2, y2: WY + WH + 2 }, g);
+
+  function draw(t) {
+    const states = sim.reqs.map((r) => stateAt(r, t));
+    states.forEach((s, i) => { th[i].setAttribute("class", "slot s-" + s); tht[i].setAttribute("class", "t-tok s-" + s); tht[i].textContent = s === "ok" ? "✓" : s === "fail" ? "×" : sim.reqs[i].id; });
+    let used = 0;
+    [0, 1, 2].forEach((s) => {
+      const seg = sim.conns[s].find(([a, b]) => t >= a - 1e-9 && t < b - 1e-9);
+      connRects[s].setAttribute("class", "slot" + (seg ? " c-" + seg[3] : ""));
+      connTexts[s].textContent = seg ? seg[2] : "";
+      queries[s].style.display = seg && seg[3] === "query" ? "" : "none";
+      if (seg) used++;
+    });
+    const calling = states.filter((s) => s === "tag" || s === "holdtag").length;
+    ext.textContent = calling ? "호출 중 " + calling + "개" : "";
+    const ok = states.filter((s) => s === "ok").length, fail = states.filter((s) => s === "fail").length, wait = states.filter((s) => s === "cwait").length;
+    okT.textContent = "성공 " + ok; failT.textContent = "실패 " + fail;
+    stats.wait.textContent = wait; stats.conn.textContent = used + "/" + D.setup.pool; stats.ok.textContent = ok + "/" + D.setup.requests; stats.fail.textContent = fail;
+    head.setAttribute("x1", X(t)); head.setAttribute("x2", X(t));
+  }
+  return { draw };
+});
+window.draw = (t) => figs.forEach((f) => f.draw(t));
+
+(() => {
+const SECONDS = 1.25;
+const slider = document.querySelector("[data-time]"), clock = document.querySelector("[data-clock]"), play = document.querySelector("[data-play]");
+const speeds = [...document.querySelectorAll("[data-speed]")];
+let t = 0, playing = true, speed = 0.25, last = null, hold = 0;
+const params = new URLSearchParams(location.search);
+if (params.has("t")) { t = Number(params.get("t")); playing = false; }
+if (matchMedia("(prefers-reduced-motion: reduce)").matches && !params.has("t")) { t = 0.75; playing = false; }
+function render() { window.draw(t); slider.value = t; clock.textContent = t.toFixed(2) + "초"; play.textContent = playing ? "❚❚ 멈춤" : "▶ 재생"; }
+function frame(now) {
+  if (last !== null && playing && !document.hidden) {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    if (t >= SECONDS) { hold += dt; if (hold > 1.5) { t = 0; hold = 0; } }
+    else t = Math.min(SECONDS, t + dt * speed);
+    render();
+  }
+  last = now; requestAnimationFrame(frame);
+}
+slider.max = SECONDS;
+slider.addEventListener("input", () => { t = Number(slider.value); playing = false; render(); });
+play.addEventListener("click", () => { if (t >= SECONDS) t = 0; playing = !playing; render(); });
+speeds.forEach((b) => b.addEventListener("click", () => { speed = Number(b.dataset.speed); speeds.forEach((x) => x.setAttribute("aria-pressed", x === b)); playing = true; render(); }));
+document.addEventListener("keydown", (e) => {
+  if (e.key === " ") { e.preventDefault(); play.click(); }
+  if (e.key === "ArrowRight" || e.key === "ArrowLeft") { t = Math.max(0, Math.min(SECONDS, t + (e.key === "ArrowRight" ? 0.01 : -0.01))); playing = false; render(); }
+});
+render(); requestAnimationFrame(frame);
+})();
+</script>
+</main></body></html>

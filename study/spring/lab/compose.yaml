@@ -1,0 +1,17 @@
+# 로컬 개발용 DB. 기본 Postgres 포트(5432)와 겹치지 않게 5433 을 쓴다.
+name: spring-lab
+services:
+  postgres:
+    image: postgres:17
+    container_name: spring-lab-postgres
+    environment:
+      POSTGRES_DB: community
+      POSTGRES_USER: community
+      POSTGRES_PASSWORD: community
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

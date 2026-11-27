@@ -1,6 +1,12 @@
 # 01. 게시글 API로 본 Spring Boot 기본기 (FastAPI와 비교)
 
 > 처음 실습은 Kotlin + Spring Boot 4로 했습니다. 표의 파일 이름은 그 실습 기준이고, 이 레포에서는 Java로 다시 옮겨 갈 예정입니다.
+>
+> 실습 코드: [lab/step01-post-api](lab/step01-post-api)
+
+[![Spring Fig 1 요청 한 건의 길](figures/step01-request-flow/figure-light.png)](https://kbj804.github.io/java-in-practice/study/spring/figures/step01-request-flow/index-light.html)
+
+움직이는 버전: [라이트](https://kbj804.github.io/java-in-practice/study/spring/figures/step01-request-flow/index-light.html) · [다크](https://kbj804.github.io/java-in-practice/study/spring/figures/step01-request-flow/index.html). POST 요청 하나가 거치는 상자 9단계와, 단계마다 스레드·커넥션을 쥐고 있는지 보여 줍니다.
 
 ## 파일 하나씩 대응시키기
 

@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="ko" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>요청 한 건의 길</title><style>
+:root{--bg:#f6f5f1;--card:#fff;--ink:#1d1d1b;--mute:#6b6a65;--line:#d9d7cf;--box:#fbfaf7;
+--run:#2f6fe4;--runbg:#e3ecfd;--hold:#e08a1e;--holdbg:#fdf0dc;--conn:#1f9d6b;--connbg:#e1f5ec;--fail:#d4483b;--failbg:#fbe4e1;--frame:#b9aee0;--framebg:#f6f4fc}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#141413;--card:#1e1e1c;--ink:#ecebe6;--mute:#9b9a94;--line:#3a3935;--box:#252522;
+--run:#6c9cff;--runbg:#1d2a45;--hold:#f0a443;--holdbg:#3b2c17;--conn:#3cc28d;--connbg:#173328;--fail:#f07467;--failbg:#3d1f1b;--frame:#6e64a8;--framebg:#23212f}}
+:root[data-theme="dark"]{--bg:#141413;--card:#1e1e1c;--ink:#ecebe6;--mute:#9b9a94;--line:#3a3935;--box:#252522;
+--run:#6c9cff;--runbg:#1d2a45;--hold:#f0a443;--holdbg:#3b2c17;--conn:#3cc28d;--connbg:#173328;--fail:#f07467;--failbg:#3d1f1b;--frame:#6e64a8;--framebg:#23212f}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR",sans-serif}
+main{max-width:1180px;margin:0 auto;padding:24px 16px 40px}
+h1{font-size:20px;margin:0 0 4px}
+.lead{color:var(--mute);margin:0 0 16px}
+.bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;position:sticky;top:0;z-index:2;background:var(--bg);padding:8px 0}
+.bar button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:5px 12px;cursor:pointer}
+.bar button[aria-pressed="true"]{border-color:var(--ink)}
+.bar input{flex:1;min-width:140px;accent-color:var(--run)}
+.clock{font-variant-numeric:tabular-nums;min-width:64px;text-align:right}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 14px 10px}
+.head{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.head b{font-size:16px}.head span{color:var(--mute);font-size:13px}
+.card p{margin:6px 0 8px;font-size:14px}
+svg{display:block;width:100%;height:auto}
+/* 좁은 화면에서는 넓은 그림이 카드 안에서만 옆으로 스크롤된다 */
+.scroll{overflow-x:auto}.scroll svg{min-width:680px}
+svg text{fill:var(--ink);font-family:inherit}
+.t-title{font-size:12px;font-weight:600}.t-mute{fill:var(--mute);font-size:10.5px}.t-tok{font-size:10px;font-weight:700}
+.box{fill:var(--box);stroke:var(--line)}
+.frame{fill:var(--framebg);stroke:var(--frame);stroke-dasharray:4 3}
+.slot{fill:var(--card);stroke:var(--line)}
+.on{stroke-width:1.8}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin:14px 0 0;padding:0;list-style:none;font-size:13.5px;color:var(--mute)}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:50%;vertical-align:-1px;margin-right:6px;border:1.6px solid}
+.cap{color:var(--mute);font-size:13.5px;margin-top:10px}
+.query{stroke:var(--conn);stroke-width:2;stroke-dasharray:4 4;fill:none;animation:flow .6s linear infinite}
+@keyframes flow{to{stroke-dashoffset:-8}}
+@media (prefers-reduced-motion:reduce){.query{animation:none}}
+
+.box.cur{stroke:var(--run);stroke-width:1.8}
+.frame.cur{stroke:var(--run);stroke-dasharray:none;stroke-width:1.8}
+.slot.run{fill:var(--runbg);stroke:var(--run);stroke-width:1.6}
+.slot.conn{fill:var(--connbg);stroke:var(--conn);stroke-width:1.6}
+.slot.pending{stroke:var(--conn);stroke-dasharray:3 2}
+[data-token] circle{fill:var(--run);stroke:var(--run)}[data-token] text{fill:#fff;font-size:8.5px}
+.now{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:10px}
+@media (max-width:760px){.now{grid-template-columns:1fr}}
+.now h2{font-size:15px;margin:0 0 4px}.now p{margin:0 0 6px;font-size:14px}
+.now .fa{color:var(--mute)}.now .fa b{color:var(--ink);font-weight:600}
+.now pre{margin:0;padding:10px 12px;background:var(--box);border:1px solid var(--line);border-radius:8px;font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;overflow-x:auto}
+.tl-row{fill:none;stroke:var(--line)}.tl-run{fill:var(--run)}.tl-conn{fill:var(--conn)}
+.tl-sql{fill:var(--card);stroke:var(--conn);stroke-width:1.4}
+.playhead{stroke:var(--ink);stroke-width:1.2}
+.tl-cur{fill:var(--ink);font-weight:700}
+</style></head>
+<body><main>
+<h1>Spring Fig 1 · 요청 한 건의 길</h1>
+<p class="lead">게시글을 쓰는 POST /posts 요청 하나가 Spring Boot 앱 안에서 어떤 상자를 거치는지 단계별로 봅니다. 아래 막대는 단계마다 Tomcat 스레드와 DB 커넥션을 쥐고 있는지 보여 줍니다.</p>
+<div class="bar"><button data-play>❚❚ 멈춤</button><button data-speed="0.5" aria-pressed="false">0.5×</button><button data-speed="1" aria-pressed="true">1×</button><button data-speed="2" aria-pressed="false">2×</button><input type="range" min="0" step="0.005" value="0" data-time aria-label="시간"><span class="clock" data-clock>0.00초</span></div>
+<section class="card">
+<div class="scroll"><svg viewBox="0 0 800 250" role="img" aria-label="Spring Boot 앱 안에서 요청 한 건이 지나가는 상자들을 위에서 본 그림">
+<rect class="frame" x="104" y="14" width="560" height="226" rx="10"/>
+<text class="t-title" x="116" y="32">JVM 프로세스 · Spring Boot 앱</text>
+<rect class="box" data-box="client" x="12" y="118" width="76" height="60" rx="8"/><text class="t-title" x="20" y="137">클라이언트</text><text class="t-mute" x="20" y="153">curl</text>
+<rect class="box" data-box="tomcat" x="118" y="44" width="118" height="156" rx="8"/><text class="t-title" x="126" y="63">Tomcat 스레드 풀</text><rect class="slot" data-lane="0" x="126" y="72" width="102" height="22" rx="6"/><text class="t-mute" x="133" y="87">T1</text><text class="t-mute" data-lanetext="0" x="152" y="87">비어 있음</text><rect class="slot" data-lane="1" x="126" y="100" width="102" height="22" rx="6"/><text class="t-mute" x="133" y="115">T2</text><text class="t-mute" data-lanetext="1" x="152" y="115">비어 있음</text><rect class="slot" data-lane="2" x="126" y="128" width="102" height="22" rx="6"/><text class="t-mute" x="133" y="143">T3</text><text class="t-mute" data-lanetext="2" x="152" y="143">비어 있음</text><rect class="slot" data-lane="3" x="126" y="156" width="102" height="22" rx="6"/><text class="t-mute" x="133" y="171">T4</text><text class="t-mute" data-lanetext="3" x="152" y="171">비어 있음</text>
+<text class="t-mute" x="126" y="192">기본 200개 중 4개</text>
+<rect class="box" data-box="dispatch" x="252" y="44" width="128" height="46" rx="8"/><text class="t-title" x="260" y="63">DispatcherServlet</text><text class="t-mute" x="260" y="79">URL → 메서드</text>
+<rect class="box" data-box="ctrl" x="252" y="110" width="128" height="46" rx="8"/><text class="t-title" x="260" y="129">PostController</text><text class="t-mute" x="260" y="145">JSON ↔ 객체 · @Valid</text>
+<rect class="frame" data-box="proxy" x="396" y="44" width="144" height="120" rx="8"/>
+<text class="t-title" x="404" y="62">트랜잭션 프록시</text><text class="t-mute" x="404" y="78">@Transactional</text>
+<rect class="box" data-box="svc" x="406" y="104" width="124" height="46" rx="8"/><text class="t-title" x="414" y="123">PostService</text><text class="t-mute" x="414" y="139">Clock 주입</text>
+<rect class="box" data-box="repo" x="396" y="180" width="144" height="46" rx="8"/><text class="t-title" x="404" y="199">PostRepository</text><text class="t-mute" x="404" y="215">Spring Data 구현체</text>
+<rect class="box" data-box="hib" x="548" y="180" width="108" height="46" rx="8"/><text class="t-title" x="556" y="199">Hibernate</text><text class="t-mute" x="556" y="215">영속성 컨텍스트</text>
+<rect class="box" data-box="pool" x="548" y="44" width="108" height="120" rx="8"/><text class="t-title" x="556" y="63">HikariCP</text><rect class="slot" data-conn="0" x="556" y="70" width="92" height="20" rx="6"/><text class="t-mute" x="563" y="84">C1</text><text class="t-tok" data-conntext="0" x="612" y="84" text-anchor="middle"></text><rect class="slot" data-conn="1" x="556" y="94" width="92" height="20" rx="6"/><text class="t-mute" x="563" y="108">C2</text><text class="t-tok" data-conntext="1" x="612" y="108" text-anchor="middle"></text><rect class="slot" data-conn="2" x="556" y="118" width="92" height="20" rx="6"/><text class="t-mute" x="563" y="132">C3</text><text class="t-tok" data-conntext="2" x="612" y="132" text-anchor="middle"></text>
+<text class="t-mute" x="556" y="155">기본 10개 중 3개</text>
+<rect class="box" data-box="db" x="680" y="44" width="108" height="182" rx="8"/><text class="t-title" x="688" y="63">PostgreSQL</text><text class="t-mute" x="688" y="79">post 테이블</text>
+<rect class="slot" data-row x="688" y="96" width="92" height="40" rx="6" style="display:none"/>
+<text class="t-tok" data-rowtext x="696" y="113"></text><text class="t-mute" data-rowsub x="696" y="128"></text>
+<path class="query" data-query d="M648 80 H680" style="display:none"/>
+<text class="t-tok" data-sql x="734" y="156" text-anchor="middle" style="fill:var(--conn)"></text>
+<text class="t-tok" data-reply x="50" y="198" text-anchor="middle" style="fill:var(--run)"></text>
+<g data-token><circle r="11"/><text class="t-tok" y="3" text-anchor="middle">요청</text></g>
+</svg>
+<svg viewBox="0 0 800 86" role="img" aria-label="단계별로 스레드와 커넥션을 쥐고 있는 구간" data-timeline></svg></div>
+<div class="now"><div><div class="head"><b data-stitle></b><span data-sn></span></div><p data-sspring></p><p class="fa" data-sfast></p></div><pre data-scode></pre></div>
+</section>
+<ul class="legend">
+<li><i style="background:var(--run);border-color:var(--run)"></i>요청이 지금 있는 곳 (파란 테두리 = 지금 실행 중인 상자)</li>
+<li><i style="background:var(--runbg);border-color:var(--run);border-radius:3px"></i>이 요청을 맡은 Tomcat 스레드</li>
+<li><i style="background:var(--connbg);border-color:var(--conn);border-radius:3px"></i>빌려 쓰는 커넥션 (초록 점선 = DB로 가는 SQL, 시간 막대의 속 빈 칸 = SQL을 보낸 단계)</li>
+<li><i style="background:var(--framebg);border-color:var(--frame);border-style:dashed;border-radius:3px"></i>점선 상자 = Spring이 감싼 것(JVM, 트랜잭션 프록시)</li>
+</ul>
+<p class="cap">스레드는 요청이 도착할 때부터 응답할 때까지 9단계를 모두 쥐지만, 커넥션은 트랜잭션이 열린 4~8단계만 씁니다. 스레드 풀(기본 200)과 커넥션 풀(기본 10)은 따로 있어서, 둘의 크기와 쥐는 시간이 2단계 실험의 주제가 됩니다. 커넥션 3개·스레드 4개만 그렸습니다. 스페이스로 재생/멈춤, ← →로 한 단계씩 옮깁니다.</p>
+<script>
+const ST = [{"at":"tomcat","title":"요청 도착","thread":true,"conn":false,"spring":"Tomcat이 스레드 풀에서 T1을 꺼내 이 요청을 맡깁니다. 응답을 보낼 때까지 T1은 이 요청만 처리합니다.","fastapi":"uvicorn 워커의 이벤트 루프가 받습니다. 요청마다 스레드를 따로 주지 않습니다.","code":"POST /posts\n{\"authorId\": 1, \"regionId\": 100, \"content\": \"붕어빵 어디서 팔아요?\"}"},{"at":"dispatch","title":"컨트롤러 찾기","thread":true,"conn":false,"spring":"DispatcherServlet이 URL과 HTTP 메서드로 @PostMapping이 붙은 메서드를 찾습니다.","fastapi":"APIRouter가 경로로 핸들러 함수를 찾는 것과 같습니다.","code":"@RestController\n@RequestMapping(\"/posts\")\nclass PostController(...) {\n    @PostMapping fun create(...)"},{"at":"ctrl","title":"JSON 읽기와 검증","thread":true,"conn":false,"spring":"JSON 본문을 CreatePostRequest로 바꾸고(Jackson) @Valid로 검증합니다. 검증에 실패하면 여기서 바로 400을 돌려줍니다.","fastapi":"요청 본문을 Pydantic 모델로 파싱하고 검증하는 단계입니다.","code":"fun create(@Valid @RequestBody request: CreatePostRequest)\n\ndata class CreatePostRequest(\n    @field:NotBlank @field:Size(max = 2000) val content: String, ...)"},{"at":"proxy","title":"트랜잭션 시작","thread":true,"conn":true,"spring":"PostService.create 호출을 Spring이 끼워 둔 프록시가 먼저 받습니다. 프록시가 트랜잭션을 열면서 HikariCP에서 커넥션 C1을 빌립니다.","fastapi":"async with session.begin(): 에 들어가는 순간입니다.","code":"@Transactional            // ← 프록시가 여기서 트랜잭션 시작\nfun create(authorId: Long, regionId: Long, content: String): Post"},{"at":"svc","title":"서비스 로직","thread":true,"conn":true,"spring":"PostService 본문이 실행됩니다. 현재 시각은 직접 부르지 않고 주입받은 Clock에서 가져와 Post 객체를 만듭니다.","fastapi":"서비스 함수 본문입니다. 테스트에서 freezegun 대신 Clock을 바꿔 끼웁니다.","code":"Post(authorId = authorId, regionId = regionId,\n     content = content, createdAt = clock.instant())"},{"at":"repo","title":"save 호출","thread":true,"conn":true,"spring":"Spring Data가 만든 PostRepository 구현체가 save를 받습니다. id가 없으니 새 객체로 보고 Hibernate의 persist를 부릅니다.","fastapi":"session.add(post) 입니다.","code":"postRepository.save(post)\n\n// 구현체(SimpleJpaRepository): id 가 null → em.persist(post)"},{"at":"hib","title":"INSERT 실행","thread":true,"conn":true,"sql":"INSERT","spring":"Hibernate가 C1로 INSERT를 보냅니다. id를 DB가 만드는 방식(IDENTITY)이라 커밋을 기다리지 않고 바로 실행해서 id를 받아 옵니다.","fastapi":"session.flush()로 INSERT를 먼저 보내고 id를 받는 것과 같습니다.","code":"insert into post (author_id, region_id, content, created_at)\nvalues (?, ?, ?, ?) returning id"},{"at":"proxy","title":"커밋과 커넥션 반납","thread":true,"conn":true,"sql":"COMMIT","spring":"메서드가 예외 없이 끝나면 프록시가 COMMIT하고 C1을 풀에 돌려줍니다. RuntimeException이 났다면 ROLLBACK합니다.","fastapi":"with 블록을 빠져나가며 commit되는 순간입니다.","code":"}                          // ← 프록시: COMMIT, 커넥션 C1 반납"},{"at":"ctrl","title":"응답","thread":true,"conn":false,"spring":"컨트롤러가 Post를 PostResponse로 바꿔 JSON으로 보내고 201을 돌려줍니다. 그다음 T1이 풀로 돌아갑니다. open-in-view를 켜 두면 이 단계까지 커넥션을 쥡니다.","fastapi":"response_model로 직렬화해서 돌려주는 단계입니다.","code":"PostResponse.from(post)    // → 201 Created\n{\"id\": 1, \"authorId\": 1, \"regionId\": 100, ...}"}];
+const AT = {"client":[74,118],"tomcat":[214,83],"dispatch":[366,44],"ctrl":[366,110],"proxy":[526,44],"svc":[516,104],"repo":[526,180],"hib":[646,180]};
+const STAGE = 1.6, MOVE = 0.45;
+const LABELS = ["도착","찾기","검증","시작","로직","save","INSERT","커밋","응답"];
+const NS = "http://www.w3.org/2000/svg";
+const el = (tag, attrs, parent) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); parent && parent.appendChild(e); return e; };
+const ease = (u) => u * u * (3 - 2 * u);
+const $ = (s) => document.querySelector(s);
+const boxes = Object.fromEntries([...document.querySelectorAll("[data-box]")].map((e) => [e.dataset.box, e]));
+const lane = $('[data-lane="0"]'), laneText = $('[data-lanetext="0"]');
+const conn = $('[data-conn="0"]'), connText = $('[data-conntext="0"]');
+const token = $("[data-token]"), query = $("[data-query]"), sql = $("[data-sql]"), reply = $("[data-reply]");
+const row = $("[data-row]"), rowText = $("[data-rowtext]"), rowSub = $("[data-rowsub]");
+const now = { n: $("[data-sn]"), title: $("[data-stitle]"), spring: $("[data-sspring]"), fast: $("[data-sfast]"), code: $("[data-scode]") };
+
+// 시간 막대: 단계마다 한 칸. 스레드 T1, 커넥션 C1 을 쥔 칸을 칠한다.
+const tl = $("[data-timeline]"), X0 = 110, X1 = 788, CW = (X1 - X0) / ST.length;
+[["스레드 T1", "thread", "tl-run", 8], ["커넥션 C1", "conn", "tl-conn", 32]].forEach(([name, key, cls, y]) => {
+  el("rect", { class: "tl-row", x: X0, y, width: X1 - X0, height: 14, rx: 3 }, tl);
+  el("text", { class: "t-mute", x: 10, y: y + 11 }, tl).textContent = name;
+  ST.forEach((s, i) => { if (s[key]) el("rect", { class: cls, x: X0 + i * CW + 1, y, width: CW - 2, height: 14, rx: 3 }, tl); });
+});
+ST.forEach((s, i) => { if (s.sql) { const c = el("rect", { class: "tl-sql", x: X0 + i * CW + CW / 2 - 20, y: 35, width: 40, height: 8, rx: 4 }, tl); } });
+const labels = LABELS.map((name, i) => { const t = el("text", { class: "t-mute", x: X0 + i * CW + CW / 2, y: 66, "text-anchor": "middle" }, tl); t.textContent = (i + 1) + " " + name; return t; });
+el("text", { class: "t-mute", x: 10, y: 66 }, tl).textContent = "단계";
+const head = el("line", { class: "playhead", x1: X0, x2: X0, y1: 2, y2: 52 }, tl);
+
+let shown = -1;
+window.draw = (t) => {
+  const i = Math.min(ST.length - 1, Math.floor(t / STAGE + 1e-9)), s = ST[i];
+  const u = ease(Math.min(1, (t - i * STAGE) / MOVE));
+  const from = AT[i === 0 ? "client" : ST[i - 1].at], to = AT[s.at];
+  const p = [from[0] + (to[0] - from[0]) * u, from[1] + (to[1] - from[1]) * u];
+  token.setAttribute("transform", "translate(" + p[0].toFixed(1) + " " + p[1].toFixed(1) + ")");
+  for (const k in boxes) boxes[k].classList.toggle("cur", k === s.at);
+  lane.setAttribute("class", "slot" + (s.thread ? " run" : "")); laneText.textContent = s.thread ? "처리 중" : "비어 있음";
+  conn.setAttribute("class", "slot" + (s.conn ? " conn" : "")); connText.textContent = s.conn ? "요청" : "";
+  query.style.display = s.sql ? "" : "none"; sql.textContent = s.sql ? "← " + s.sql : "";
+  // DB 의 post 행: INSERT 뒤에는 커밋 전(다른 트랜잭션에는 안 보임), 커밋 뒤에는 저장됨
+  const inserted = i >= 6, committed = i >= 7 && (i > 7 || u >= 1);
+  row.style.display = inserted ? "" : "none"; row.setAttribute("class", "slot" + (committed ? " conn" : " pending"));
+  rowText.textContent = inserted ? "id 1" : ""; rowSub.textContent = inserted ? (committed ? "커밋됨" : "커밋 전") : "";
+  reply.textContent = i === ST.length - 1 && u >= 1 ? "201 Created" : "";
+  head.setAttribute("x1", X0 + (t / STAGE) * CW); head.setAttribute("x2", X0 + (t / STAGE) * CW);
+  if (shown !== i) {
+    shown = i;
+    labels.forEach((l, k) => l.setAttribute("class", k === i ? "t-mute tl-cur" : "t-mute"));
+    now.n.textContent = (i + 1) + " / " + ST.length; now.title.textContent = s.title; now.spring.textContent = s.spring;
+    now.fast.innerHTML = "<b>FastAPI라면</b> " + s.fastapi; now.code.textContent = s.code;
+  }
+};
+
+(() => {
+const SECONDS = 14.4;
+const slider = document.querySelector("[data-time]"), clock = document.querySelector("[data-clock]"), play = document.querySelector("[data-play]");
+const speeds = [...document.querySelectorAll("[data-speed]")];
+let t = 0, playing = true, speed = 1, last = null, hold = 0;
+const params = new URLSearchParams(location.search);
+if (params.has("t")) { t = Number(params.get("t")); playing = false; }
+if (matchMedia("(prefers-reduced-motion: reduce)").matches && !params.has("t")) { t = 10.4; playing = false; }
+function render() { window.draw(t); slider.value = t; clock.textContent = t.toFixed(2) + "초"; play.textContent = playing ? "❚❚ 멈춤" : "▶ 재생"; }
+function frame(now) {
+  if (last !== null && playing && !document.hidden) {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    if (t >= SECONDS) { hold += dt; if (hold > 1.5) { t = 0; hold = 0; } }
+    else t = Math.min(SECONDS, t + dt * speed);
+    render();
+  }
+  last = now; requestAnimationFrame(frame);
+}
+slider.max = SECONDS;
+slider.addEventListener("input", () => { t = Number(slider.value); playing = false; render(); });
+play.addEventListener("click", () => { if (t >= SECONDS) t = 0; playing = !playing; render(); });
+speeds.forEach((b) => b.addEventListener("click", () => { speed = Number(b.dataset.speed); speeds.forEach((x) => x.setAttribute("aria-pressed", x === b)); playing = true; render(); }));
+document.addEventListener("keydown", (e) => {
+  if (e.key === " ") { e.preventDefault(); play.click(); }
+  if (e.key === "ArrowRight" || e.key === "ArrowLeft") { t = Math.max(0, Math.min(SECONDS, t + (e.key === "ArrowRight" ? 1.6 : -1.6))); playing = false; render(); }
+});
+render(); requestAnimationFrame(frame);
+})();
+</script>
+</main></body></html>

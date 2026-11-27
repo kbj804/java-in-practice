@@ -20,6 +20,7 @@ Python(FastAPI)으로 백엔드를 해 온 개발자가 Java를 공부하면서 
 | Spring | [01. 게시글 API로 본 Spring Boot 기본기 (FastAPI와 비교)](study/spring/01-spring-basics.md) |
 | Spring | [02. 트랜잭션 안의 외부 호출과 커넥션 풀 고갈](study/spring/02-connection-pool.md) |
 | Spring | [03. 동시 처리 상한이 없을 때: 타임아웃, 벌크헤드, 서킷 브레이커](study/spring/03-concurrency-limits.md) |
+| Spring 실습 | [단계별 Kotlin + Spring Boot 코드와 그림](study/spring/lab/README.md) |
 
 ### problems
 

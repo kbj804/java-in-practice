@@ -8,6 +8,11 @@
 - 게시글 저장 + 가짜 외부 LLM 장소 태깅 **0.5초**
 - 동시 요청 **20개**
 - 실습: Kotlin + Spring Boot 4, Testcontainers Postgres로 재현 (Java 버전은 problems/로 옮길 예정)
+- 실습 코드: [lab/step02-connection-pool](lab/step02-connection-pool) (`PoolExperiment.kt`, `PoolExhaustionExperimentTest`)
+
+[![Spring Fig 2 커넥션 풀 고갈](figures/step02-connection-pool/figure-light.png)](https://kbj804.github.io/java-in-practice/study/spring/figures/step02-connection-pool/index-light.html)
+
+움직이는 버전: [라이트](https://kbj804.github.io/java-in-practice/study/spring/figures/step02-connection-pool/index-light.html) · [다크](https://kbj804.github.io/java-in-practice/study/spring/figures/step02-connection-pool/index.html). 두 그림은 아래 실험을 모델로 다시 계산해서, 테스트와 같은 6 / 14, 20 / 0이 나옵니다.
 
 ## 결과
 

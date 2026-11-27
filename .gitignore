@@ -2,6 +2,7 @@
 .idea/
 build/
 .gradle/
+.kotlin/
 out/
 *.class
 shots/
