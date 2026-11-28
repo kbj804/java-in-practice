@@ -1,0 +1,60 @@
+spring:
+  application:
+    name: community
+  datasource:
+    url: jdbc:postgresql://127.0.0.1:5433/community?currentSchema=step04
+    username: community
+    password: community
+    hikari:
+      # 기본값도 10. 실험 ①에서 이 값을 줄여 풀 고갈을 재현한다.
+      maximum-pool-size: 10
+      # 커넥션마다 기본 스키마를 정한다. step04 부터 네이티브 SQL 을 쓰므로 필요하다.
+      # (url 의 currentSchema 는 테스트에서 Testcontainers 가 url 을 덮어쓰면 사라진다)
+      schema: step04
+  flyway:
+    # 단계마다 스키마를 나눠 같은 로컬 DB 를 써도 테이블이 섞이지 않게 한다
+    schemas: step04
+  jpa:
+    # 기본값 true. 켜 두면 요청이 끝날 때까지 DB 커넥션을 쥐고 있다. 실험 ①과 직접 관련된다.
+    open-in-view: false
+    hibernate:
+      # 스키마는 Flyway 가 만들고, Hibernate 는 엔티티와 맞는지만 확인한다.
+      ddl-auto: validate
+    properties:
+      hibernate.default_schema: step04
+  mvc:
+    problemdetails:
+      enabled: true
+  rabbitmq:
+    # compose.yaml 의 spring-lab-rabbitmq. 기본 포트(5672)와 겹치지 않게 5673.
+    host: 127.0.0.1
+    port: 5673
+    username: community
+    password: community
+    # 보낸 메시지를 브로커가 받았다는 확인(publisher confirm)을 기다린다. OutboxRelay 가 published_at 을 찍기 전에 필요하다.
+    publisher-confirm-type: simple
+    listener:
+      simple:
+        # 컨슈머 하나가 ack 안 된 메시지를 몇 개까지 미리 받아 둘지. 기본 250.
+        # 오래 걸리는 메시지를 한 컨슈머가 몰아 받지 않게 1 로 둔다.
+        prefetch: 1
+
+outbox:
+  relay:
+    # 아직 안 보낸 outbox 행을 몇 초마다 브로커로 보낼지
+    interval: PT1S
+
+notification:
+  # processing 으로 가져간 뒤 이 시간이 지나도 completed 가 아니면 다른 워커가 다시 가져간다.
+  # 한 묶음(batch-size)을 보내는 최악의 시간보다 길어야 한다. 짧으면 중복, 길면 지연.
+  lease: PT30S
+  batch-size: 100
+  sweeper:
+    # pending 이나 리스가 지난 행을 몇 초마다 돌아볼지
+    interval: PT5S
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics

@@ -13,5 +13,21 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
 
+  # step04 부터. 기본 포트(5672, 15672)와 겹치지 않게 5673, 15673. 관리 화면: http://127.0.0.1:15673
+  rabbitmq:
+    image: rabbitmq:4.1-management
+    container_name: spring-lab-rabbitmq
+    # 처음부터 rabbitmq 사용자로 띄운다. root 로 뜨면 .erlang.cookie 를 root 소유로 만들어 읽지 못하고 죽는다(eacces).
+    user: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: community
+      RABBITMQ_DEFAULT_PASS: community
+    ports:
+      - "127.0.0.1:5673:5672"
+      - "127.0.0.1:15673:15672"
+    volumes:
+      - rabbitdata:/var/lib/rabbitmq
+
 volumes:
   pgdata:
+  rabbitdata:
