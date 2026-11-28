@@ -68,7 +68,7 @@ returning id, event_id, post_id, user_id
 
 [![Spring Fig 4 같은 메시지가 두 번 와도, 보내다 죽어도](figures/step04-rabbitmq-inbox/figure-light.png)](https://kbj804.github.io/java-in-practice/study/spring/figures/step04-rabbitmq-inbox/index-light.html)
 
-움직이는 버전: [라이트](https://kbj804.github.io/java-in-practice/study/spring/figures/step04-rabbitmq-inbox/index-light.html) · [다크](https://kbj804.github.io/java-in-practice/study/spring/figures/step04-rabbitmq-inbox/index.html). 이웃 한 명이 한 칸입니다. 위 버튼으로 세 장면을 바꿀 수 있습니다([보내다 죽음](figures/step04-rabbitmq-inbox/figure-crash-light.png) · [동시에 2번](figures/step04-rabbitmq-inbox/figure-concurrent-light.png)). 그림의 단계 모델로 계산한 결과가 아래 테스트 숫자와 다르면 그림 빌드가 멈춥니다.
+움직이는 버전: [라이트](https://kbj804.github.io/java-in-practice/study/spring/figures/step04-rabbitmq-inbox/index-light.html) · [다크](https://kbj804.github.io/java-in-practice/study/spring/figures/step04-rabbitmq-inbox/index.html). 릴레이 → RabbitMQ → 알림 워커(리스너 · 스케줄러) → PostgreSQL · FCM → 이웃 휴대폰 구조 위에서, 단계마다 누가 누구에게 요청을 보냈는지 파란 화살표로 켜고 아래 "이번 단계에 오간 요청"에 출발 → 도착을 적습니다. 서버가 죽는 단계는 워커 상자와 그때 보내던 화살표가 빨갛게 바뀝니다. 위 버튼으로 세 장면을 바꿀 수 있습니다([보내다 죽음: 6단계에 죽는 순간](figures/step04-rabbitmq-inbox/figure-crash-light.png) · [동시에 2번](figures/step04-rabbitmq-inbox/figure-concurrent-light.png)). 그림의 단계 모델로 계산한 결과가 아래 테스트 숫자와 다르면 그림 빌드가 멈춥니다.
 
 ## 결과
 
