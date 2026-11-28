@@ -1,6 +1,6 @@
 // 5단계 그림: 4단계 inbox 구조(릴레이 → RabbitMQ → 알림 워커 → PostgreSQL · FCM → 이웃) 위에 재시도 규칙을 얹은 설계를 네 장면으로 비교한다.
 // 위는 부품과 단계마다 오간 요청(화살표 · 요청 기록), 가운데는 inbox 행 10개와 돋보기로 본 행 하나의 컬럼,
-// 아래는 시간축(누가 언제 행을 쥐었나 · 보냈나 · 멈췄나)이다.
+// 그 아래는 PostgreSQL 쿼리(이번 단계에 쓴 줄을 칠함), 맨 아래는 시간축(누가 언제 행을 쥐었나 · 보냈나 · 멈췄나)이다.
 // 실험 코드가 없는 설계 단계라, 모델 결과가 노트 06 의 표(EXPECT)와 같은지만 빌드에서 확인한다.
 // node build.mjs → index.html, index-light.html  (?s=outage, ?s=fence, ?s=late 로 다른 장면을 연다)
 import { dirname } from "node:path";
@@ -37,7 +37,7 @@ const DATA = {
   })),
 };
 
-// ── 그림 좌표(viewBox 990 × 440) ──
+// ── 그림 좌표(viewBox 990 × 515) ──
 const LANE_Y = { w1: 60, sw: 112 };
 const ARROWS = {
   pub: { d: "M130 90 H168", cx: 149, cy: 90 },
@@ -46,10 +46,12 @@ const ARROWS = {
   "db:w1": { d: "M430 170 V218", cx: 430, cy: 196 }, "db:sw": { d: "M540 170 V218", cx: 540, cy: 196 },
   fcm: { d: "M760 95 H798", cx: 779, cy: 95 },
 };
-const TL = { x0: 110, x1: 960, rows: [362, 386, 410] };
+const TL = { x0: 110, x1: 960, rows: [437, 461, 485] };
 
-function figureSvg({ scn, id: cid }) {
+function figureSvg({ scn, way, id: cid }) {
   const S = SCENARIOS[scn];
+  const sqlRows = S.ways[way].sql.map(([name, cond], i) =>
+    `<g class="sq" data-sq="${i}"><text class="t-mute" x="20" y="${356 + i * 15}">${name}</text><text class="t-code" x="218" y="${356 + i * 15}">${cond.replace(/</g, "&lt;")}</text></g>`).join("");
   const arrows = Object.entries(ARROWS).map(([id, a]) => `<path class="flow" data-flow="${id}" d="${a.d}" marker-end="url(#ah-idle-${cid})"/>`).join("");
   const labels = Object.entries(ARROWS).map(([id, a]) =>
     `<g class="fl" data-fl="${id}" data-cx="${a.cx}" data-cy="${a.cy}" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="${a.cx}" y="${a.cy + 3.5}"></text></g>`).join("");
@@ -65,8 +67,8 @@ function figureSvg({ scn, id: cid }) {
     .map(([label, key], i) => `<text class="t-mute" x="696" y="${256 + i * 15}">${label}</text><text class="t-tok" data-kv="${key}" x="800" y="${256 + i * 15}"></text>`).join("");
   const laneNames = Object.entries(S.lanes).map(([k, name], i) => `<text class="t-mute" x="20" y="${TL.rows[i] + 4}">${name}</text><line class="tl-base" x1="${TL.x0}" x2="${TL.x1}" y1="${TL.rows[i]}" y2="${TL.rows[i]}"/>`).join("");
   const X = (t) => TL.x0 + (t / S.axis.max) * (TL.x1 - TL.x0);
-  const ticks = S.axis.ticks.map((t) => `<line class="tl-base" x1="${X(t)}" x2="${X(t)}" y1="416" y2="420"/><text class="t-cap" x="${X(t)}" y="431" text-anchor="middle">${clock(S.unit, t)}</text>`).join("");
-  return `<svg viewBox="0 0 990 440" role="img" aria-label="OutboxRelay, RabbitMQ, 알림 워커, PostgreSQL, FCM, 이웃 휴대폰 사이에 오가는 요청과 시간축">
+  const ticks = S.axis.ticks.map((t) => `<line class="tl-base" x1="${X(t)}" x2="${X(t)}" y1="491" y2="495"/><text class="t-cap" x="${X(t)}" y="506" text-anchor="middle">${clock(S.unit, t)}</text>`).join("");
+  return `<svg viewBox="0 0 990 515" role="img" aria-label="OutboxRelay, RabbitMQ, 알림 워커, PostgreSQL, FCM, 이웃 휴대폰 사이에 오가는 요청과 시간축">
 <defs>${["idle", "run", "bad"].map((k) => `<marker id="ah-${k}-${cid}" viewBox="0 0 8 8" refX="7" refY="4" markerUnits="userSpaceOnUse" markerWidth="${k === "idle" ? 7 : 9}" markerHeight="${k === "idle" ? 7 : 9}" orient="auto"><path class="ah-${k}" d="M0 0L8 4L0 8z"/></marker>`).join("")}</defs>
 <rect class="box" data-box="relay" x="10" y="50" width="120" height="80" rx="8"/>
 <text class="t-title" x="20" y="70">OutboxRelay</text><text class="t-mute" x="20" y="85">outbox → 발행</text><text class="t-tok" data-relay x="20" y="112"></text>
@@ -90,10 +92,13 @@ ${strip}
 <text class="t-cap" x="380" y="292">p 가능 · w 대기 · r/s 보내는 중 · c 끝 · f 포기 · x 버림</text>
 <line class="tl-base" x1="684" x2="684" y1="228" y2="306"/><text class="t-title" x="696" y="240">행 #${S.focus} 돋보기</text>
 ${kv}
-<rect class="box" x="10" y="325" width="970" height="110" rx="8"/>
-<text class="t-title" x="20" y="343">시간축</text><text class="t-tok k-run" data-now-t x="70" y="343"></text><text class="t-cap" x="960" y="343" text-anchor="end">굵은 막대 = 보냄 · 멈춤 · 장애,  아래 얇은 줄 = 리스 (행을 쥐고 있는 시간),  세로 눈금 = 실패 ┃ 성공</text>
+<rect class="box" data-box="sql" x="10" y="322" width="970" height="70" rx="8"/>
+<text class="t-title" x="20" y="339">PostgreSQL 쿼리</text><text class="t-cap" x="960" y="339" text-anchor="end">이번 단계에 쓴 쿼리는 파랗게</text>
+${sqlRows}
+<rect class="box" x="10" y="400" width="970" height="110" rx="8"/>
+<text class="t-title" x="20" y="418">시간축</text><text class="t-tok k-run" data-now-t x="70" y="418"></text><text class="t-cap" x="960" y="418" text-anchor="end">굵은 막대 = 보냄 · 멈춤 · 장애,  아래 얇은 줄 = 리스 (행을 쥐고 있는 시간),  세로 눈금 = 실패 ┃ 성공</text>
 ${laneNames}${ticks}
-<g data-segs></g><line class="tl-cur" data-cursor y1="350" y2="418"/>
+<g data-segs></g><line class="tl-cur" data-cursor y1="425" y2="493"/>
 ${arrows}
 ${labels}
 </svg>`;
@@ -122,6 +127,8 @@ const css = `
 .scn-lead{color:var(--mute);font-size:14px;margin:4px 0 0}
 .t-cap{fill:var(--mute);font-size:9px}
 .t-cap.inv{fill:var(--card);font-weight:700}
+.t-code{font-family:ui-monospace,Menlo,monospace;font-size:9.5px;fill:var(--ink)}
+.sq.on .t-code{fill:var(--run);font-weight:700}.sq.on .t-mute{fill:var(--run);font-weight:600}
 .t-big{font-size:16px;font-weight:700;font-variant-numeric:tabular-nums}
 .box.on{stroke:var(--run);stroke-width:2}
 .box.down{fill:var(--failbg);stroke:var(--fail);stroke-width:2}
@@ -196,6 +203,7 @@ const cards = Object.keys(D.cards).map((id) => {
   const root = document.querySelector('[data-card="' + id + '"]'), C = D.cards[id];
   const q = (s) => root.querySelector(s), qa = (s) => [...root.querySelectorAll(s)];
   const byData = (attr) => Object.fromEntries(qa("[data-" + attr + "]").map((e) => [e.getAttribute("data-" + attr), e]));
+  const sqs = byData("sq");
   const boxes = byData("box"), lanes = byData("lane"), arrows = byData("flow"), labels = byData("fl"), workers = byData("worker");
   const phones = byData("phone"), cells = byData("cell"), cellTs = byData("cellt"), kv = byData("kv"), stats = byData("stat");
   const relay = q("[data-relay]"), mq = q("[data-mq]"), fcmst = q("[data-fcmst]"), calls = q("[data-calls]"), stale = q("[data-stale]");
@@ -227,6 +235,10 @@ const cards = Object.keys(D.cards).map((id) => {
         const w = txt.getComputedTextLength() + 10, cx = Number(g.dataset.cx), cy = Number(g.dataset.cy);
         r.setAttribute("x", cx - w / 2); r.setAttribute("y", cy - 7); r.setAttribute("width", w);
       }
+      // 이번 단계에 PostgreSQL 로 간 요청이 어느 쿼리인지: claim → 0·1번, 끝내기 · 실패 · 만료 → 2번
+      const dbTexts = s.flows.filter((f) => f.id.startsWith("db:")).map((f) => f.label + " " + f.text).join(" ");
+      const usedSq = [/claim/.test(dbTexts), /claim/.test(dbTexts), /completed|실패|expired|0행|failed/.test(dbTexts)];
+      for (const [i, g] of Object.entries(sqs)) g.setAttribute("class", "sq" + (usedSq[i] ? " on" : ""));
       const hot = new Set(s.focus);
       for (const f of s.flows) for (const node of D.flows[f.id]) hot.add(boxOf(node));
       const hotLanes = new Set(s.flows.flatMap((f) => D.flows[f.id]).filter((x) => lanes[x]));
@@ -313,7 +325,7 @@ writePages(dir, {
   title: "재시도와 리스",
   css,
   body: `<h1>Spring Fig 5 · 느린 FCM, 장애, 늦게 돌아온 워커, 너무 늦은 알림</h1>
-<p class="lead">4단계 inbox 의 리스 · 스케줄러 위에 재시도 규칙을 얹습니다: 리스 &gt; 묶음 × 호출 타임아웃, 지수 백오프와 상한, next_attempt_at 한 컬럼, 펜싱 토큰(attempts), 발생 시각 기준 만료. 위는 단계마다 누가 누구에게 요청을 보냈는지, 가운데는 inbox 행 10개와 행 하나의 컬럼, 아래는 시간축입니다.</p>
+<p class="lead">4단계 inbox 의 리스 · 스케줄러 위에 재시도 규칙을 얹습니다: 리스 &gt; 묶음 × 호출 타임아웃, 지수 백오프와 상한, next_attempt_at 한 컬럼, 펜싱 토큰(attempts), 발생 시각 기준 만료. 위는 단계마다 누가 누구에게 요청을 보냈는지, 가운데는 inbox 행 10개와 행 하나의 컬럼, 그 아래는 PostgreSQL 에 보내는 쿼리(리스너와 스케줄러가 같은 claim 쿼리를 씁니다), 맨 아래는 시간축입니다. next_attempt_at 은 claim 때 "지금 + 리스", 실패 때 "지금 + 백오프", 끝나면 null 이 됩니다.</p>
 <div class="scn">${Object.entries(SCENARIOS).map(([k, s]) => `<button data-scn-btn="${k}">${s.label}</button>`).join("")}</div>
 <p class="scn-lead" data-scn-lead></p>
 ${controls([0.5, 1, 2], 1)}

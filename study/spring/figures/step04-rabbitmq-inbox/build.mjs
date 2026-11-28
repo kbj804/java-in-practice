@@ -54,7 +54,7 @@ const DATA = {
   })),
 };
 
-// ── 그림 좌표(viewBox 990 × 335) ──
+// ── 그림 좌표(viewBox 990 × 426) ──
 //  OutboxRelay → RabbitMQ ⇄ 알림 워커(리스너 1 · 리스너 2 · 스케줄러) → FCM → 이웃 휴대폰
 //                           ↓
 //                       PostgreSQL notification_delivery
@@ -70,8 +70,23 @@ const ARROWS = {
 };
 const LANE_NAME = { w1: "리스너 1", w2: "리스너 2", sw: "스케줄러" };
 
+// 그림 아래 "PostgreSQL 쿼리" 상자: [이름, 조건, 칠할 때 쓰는 단어]. step04 코드(NotificationDelivery.kt)와 같은 조건이다.
+const INSERT_Q = ["넣기 · 리스너가 메시지를 받으면", "INSERT … SELECT 동네 이웃 FROM region_member   ON CONFLICT (event_id, user_id) DO NOTHING", "INSERT"];
+const CLAIM_Q = (who) => [`가져가기 · ${who}`, "WHERE state = 'pending' OR (state = 'processing' AND claimed_at &lt; now − 30초)   ORDER BY id LIMIT 100   FOR UPDATE SKIP LOCKED", "claim"];
+const SET_Q = ["가져가며 바꾸는 값", "SET state = 'processing', claimed_at = now   (리스 30초는 이 시각부터)", "claim"];
+const DONE_Q = ["끝내기 · 보낸 뒤", "SET state = 'completed'   WHERE id IN (내가 가져간 행) AND state = 'processing'", "완료"];
+const SQL = {
+  naive: [["읽기 · 리스너가 메시지를 받으면", "SELECT user_id FROM region_member WHERE region_id = ?   → 이웃마다 바로 FCM", "읽기"],
+    ["inbox 표 없음", "넣기 · 가져가기 · 끝내기 쿼리가 없다. 같은 메시지가 두 번 오면 두 번 보낸다", "-"]],
+  inbox: [INSERT_Q, CLAIM_Q("리스너들과 스케줄러가 같은 쿼리"), SET_Q, DONE_Q],
+  late: [INSERT_Q, CLAIM_Q("리스너만 (스케줄러 없음)"), SET_Q, DONE_Q],
+  early: [INSERT_Q, CLAIM_Q("리스너와 스케줄러가 같은 쿼리"), SET_Q, DONE_Q],
+};
+
 function figureSvg({ way, id: cid }) {
   const inbox = way !== "naive";
+  const sqlRows = SQL[way].map(([name, cond, key], i) =>
+    `<g class="sq" data-sq="${key}"><text class="t-mute" x="20" y="${368 + i * 15}">${name}</text><text class="t-code" x="218" y="${368 + i * 15}">${cond}</text></g>`).join("");
   const arrows = Object.entries(ARROWS).map(([id, a]) => `<path class="flow" data-flow="${id}" d="${a.d}" marker-end="url(#ah-idle-${cid})"${!inbox && id.startsWith("db:") ? ' opacity=".4"' : ""}/>`).join("");
   const labels = Object.entries(ARROWS).map(([id, a]) =>
     `<g class="fl" data-fl="${id}" data-cx="${a.cx}" data-cy="${a.cy}" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="${a.cx}" y="${a.cy + 3.5}"></text></g>`).join("");
@@ -80,7 +95,7 @@ function figureSvg({ way, id: cid }) {
   const dbCaps = Object.entries(DBX).map(([w, x]) => `<text class="t-cap" x="${x + 4}" y="192">${LANE_NAME[w]}</text>`).join("");
   const grid = Array.from({ length: MEMBERS / GROUP }, (_, i) =>
     `<rect class="cell" x="${880 + (i % 10) * 9.2}" y="${62 + Math.floor(i / 10) * 9.2}" width="7.6" height="7.6" rx="1.2"/>`).join("");
-  return `<svg viewBox="0 0 990 335" role="img" aria-label="OutboxRelay, RabbitMQ, 알림 워커, PostgreSQL, FCM, 이웃 휴대폰 사이에 오가는 요청을 위에서 본 그림">
+  return `<svg viewBox="0 0 990 426" role="img" aria-label="OutboxRelay, RabbitMQ, 알림 워커, PostgreSQL, FCM, 이웃 휴대폰 사이에 오가는 요청을 위에서 본 그림">
 <defs>${["idle", "run", "bad"].map((k) => `<marker id="ah-${k}-${cid}" viewBox="0 0 8 8" refX="7" refY="4" markerUnits="userSpaceOnUse" markerWidth="${k === "idle" ? 7 : 9}" markerHeight="${k === "idle" ? 7 : 9}" orient="auto"><path class="ah-${k}" d="M0 0L8 4L0 8z"/></marker>`).join("")}</defs>
 <rect class="box" data-box="relay" x="10" y="56" width="130" height="88" rx="8"/>
 <text class="t-title" x="20" y="76">OutboxRelay</text><text class="t-mute" x="20" y="92">글 쓴 쪽 · step03</text><text class="t-tok" data-relay x="20" y="124"></text>
@@ -106,6 +121,9 @@ ${dbCaps}
 <text class="t-mute" x="880" y="230">한 사람의 알림창</text><g data-tray></g>
 <rect class="box" data-box="log" x="10" y="200" width="368" height="125" rx="8"/>
 <text class="t-title" x="20" y="220">이번 단계에 오간 요청</text><g data-log></g>
+<rect class="box" data-box="sql" x="10" y="334" width="972" height="86" rx="8"/>
+<text class="t-title" x="20" y="351">PostgreSQL 쿼리</text><text class="t-cap" x="972" y="351" text-anchor="end">이번 단계에 쓴 쿼리는 파랗게</text>
+${sqlRows}
 ${arrows}
 ${labels}
 </svg>`;
@@ -130,6 +148,8 @@ const css = `
 .scn button[aria-pressed="true"]{border-color:var(--ink);font-weight:600}
 .scn-lead{color:var(--mute);font-size:14px;margin:4px 0 0}
 .t-cap{fill:var(--mute);font-size:9px}
+.t-code{font-family:ui-monospace,Menlo,monospace;font-size:9.5px;fill:var(--ink)}
+.sq.on .t-code{fill:var(--run);font-weight:700}.sq.on .t-mute{fill:var(--run);font-weight:600}
 .t-big{font-size:16px;font-weight:700;font-variant-numeric:tabular-nums}
 .box.on{stroke:var(--run);stroke-width:2}
 .box.down{fill:var(--failbg);stroke:var(--fail);stroke-width:2}
@@ -219,6 +239,9 @@ const cards = Object.keys(D.cards).map((id) => {
         r.setAttribute("x", cx - w / 2); r.setAttribute("y", cy - 7); r.setAttribute("width", w);
       }
       // 상자 강조: 요청을 보낸 쪽과 받은 쪽
+      // 이번 단계에 PostgreSQL 로 간 요청이 어느 쿼리인지 칠한다
+      const dbTexts = s.flows.filter((f) => f.id.startsWith("db:")).map((f) => f.label + " " + f.text).join(" ");
+      for (const g of qa("[data-sq]")) { const key = g.dataset.sq; g.setAttribute("class", "sq" + (key.length > 1 && dbTexts.includes(key) ? " on" : "")); }
       const hot = new Set(s.focus);
       for (const f of s.flows) for (const node of D.flows[f.id]) hot.add(boxOf(node));
       const hotLanes = new Set(s.flows.flatMap((f) => D.flows[f.id]).filter((x) => lanes[x]));
