@@ -1,0 +1,89 @@
+spring:
+  application:
+    name: community
+  datasource:
+    url: jdbc:postgresql://127.0.0.1:5433/community?currentSchema=step06
+    username: community
+    password: community
+    hikari:
+      # 기본값도 10. 실험 ①에서 이 값을 줄여 풀 고갈을 재현한다.
+      maximum-pool-size: 10
+      # 커넥션마다 기본 스키마를 정한다. step04 부터 네이티브 SQL 을 쓰므로 필요하다.
+      # (url 의 currentSchema 는 테스트에서 Testcontainers 가 url 을 덮어쓰면 사라진다)
+      schema: step06
+  flyway:
+    # 단계마다 스키마를 나눠 같은 로컬 DB 를 써도 테이블이 섞이지 않게 한다
+    schemas: step06
+  jpa:
+    # 기본값 true. 켜 두면 요청이 끝날 때까지 DB 커넥션을 쥐고 있다. 실험 ①과 직접 관련된다.
+    open-in-view: false
+    hibernate:
+      # 스키마는 Flyway 가 만들고, Hibernate 는 엔티티와 맞는지만 확인한다.
+      ddl-auto: validate
+    properties:
+      hibernate.default_schema: step06
+  mvc:
+    problemdetails:
+      enabled: true
+  data:
+    redis:
+      # compose.yaml 의 spring-lab-valkey. 기본 포트(6379)와 겹치지 않게 6380.
+      host: 127.0.0.1
+      port: 6380
+      # Valkey 명령 하나를 기다리는 최대 시간. 캐시가 느리면 기다리지 말고 실패로 보고 DB 로 간다.
+      timeout: 200ms
+  rabbitmq:
+    # compose.yaml 의 spring-lab-rabbitmq. 기본 포트(5672)와 겹치지 않게 5673.
+    host: 127.0.0.1
+    port: 5673
+    username: community
+    password: community
+    # 보낸 메시지를 브로커가 받았다는 확인(publisher confirm)을 기다린다. OutboxRelay 가 published_at 을 찍기 전에 필요하다.
+    publisher-confirm-type: simple
+    listener:
+      simple:
+        # 컨슈머 하나가 ack 안 된 메시지를 몇 개까지 미리 받아 둘지. 기본 250.
+        # 오래 걸리는 메시지를 한 컨슈머가 몰아 받지 않게 1 로 둔다.
+        prefetch: 1
+
+outbox:
+  relay:
+    # 아직 안 보낸 outbox 행을 몇 초마다 브로커로 보낼지
+    interval: PT1S
+
+notification:
+  # processing 으로 가져간 뒤 이 시간이 지나도 completed 가 아니면 다른 워커가 다시 가져간다.
+  # 한 묶음(batch-size)을 보내는 최악의 시간보다 길어야 한다. 짧으면 중복, 길면 지연.
+  lease: PT30S
+  batch-size: 100
+  sweeper:
+    # pending 이나 리스가 지난 행을 몇 초마다 돌아볼지
+    interval: PT5S
+
+cache:
+  feed:
+    # 동네 최신 글 목록(region:{id}:latest)에 남겨 둘 글 수. 화면은 20개만 보여 주고, 나머지는 블라인드로 빠질 때를 위한 여유분.
+    keep: 100
+    # 목록 키의 만료. 평소에는 이벤트가 고치고, 이 값은 놓친 이벤트가 있어도 틀린 목록이 남는 최대 시간이다.
+    ttl: PT10M
+    # 만료 시각이 한꺼번에 몰리지 않게 ttl 에 0 ~ jitter 사이 무작위 시간을 더한다.
+    jitter: PT2M
+    # 목록을 다시 만드는 사람 하나만 DB 에 가도록 거는 락(SET NX PX)의 만료. 다시 만드는 최악의 시간보다 길어야 한다.
+    lock-ttl: PT0.5S
+    # 락을 못 잡은 요청이 캐시를 다시 볼 간격과 횟수. 다 기다려도 없으면 DB 에서 직접 읽는다.
+    wait-step: PT0.02S
+    wait-max: 10
+    # 실험용: 목록을 다시 만드는 DB 쿼리를 이만큼 느리게 한다(pg_sleep). 0 이면 끈다.
+    rebuild-delay: PT0S
+  post:
+    # 글 요약(post:{id})의 만료와 지터. 늦게 도착한 SET 이 남긴 옛 값도 이 시간 안에는 사라진다.
+    ttl: PT10M
+    jitter: PT2M
+    # 이벤트로 지운 뒤 이만큼 지나 한 번 더 지운다(지연 이중 삭제). 0 이면 한 번만 지운다.
+    double-delete-delay: PT1S
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics

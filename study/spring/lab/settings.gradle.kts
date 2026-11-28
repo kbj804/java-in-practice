@@ -6,4 +6,5 @@ include(
     "step02-connection-pool",
     "step03-transactional-outbox",
     "step04-rabbitmq-inbox",
+    "step06-valkey-cache",
 )

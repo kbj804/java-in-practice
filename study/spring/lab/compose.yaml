@@ -28,6 +28,13 @@ services:
     volumes:
       - rabbitdata:/var/lib/rabbitmq
 
+  # step06 부터. 기본 포트(6379)와 겹치지 않게 6380.
+  valkey:
+    image: valkey/valkey:8.1
+    container_name: spring-lab-valkey
+    ports:
+      - "127.0.0.1:6380:6379"
+
 volumes:
   pgdata:
   rabbitdata:

@@ -1,0 +1,592 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Valkey 캐시 설계</title><style>
+:root{--bg:#f6f5f1;--card:#fff;--ink:#1d1d1b;--mute:#6b6a65;--line:#d9d7cf;--box:#fbfaf7;
+--run:#2f6fe4;--runbg:#e3ecfd;--hold:#e08a1e;--holdbg:#fdf0dc;--conn:#1f9d6b;--connbg:#e1f5ec;--fail:#d4483b;--failbg:#fbe4e1;--frame:#b9aee0;--framebg:#f6f4fc}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#141413;--card:#1e1e1c;--ink:#ecebe6;--mute:#9b9a94;--line:#3a3935;--box:#252522;
+--run:#6c9cff;--runbg:#1d2a45;--hold:#f0a443;--holdbg:#3b2c17;--conn:#3cc28d;--connbg:#173328;--fail:#f07467;--failbg:#3d1f1b;--frame:#6e64a8;--framebg:#23212f}}
+:root[data-theme="dark"]{--bg:#141413;--card:#1e1e1c;--ink:#ecebe6;--mute:#9b9a94;--line:#3a3935;--box:#252522;
+--run:#6c9cff;--runbg:#1d2a45;--hold:#f0a443;--holdbg:#3b2c17;--conn:#3cc28d;--connbg:#173328;--fail:#f07467;--failbg:#3d1f1b;--frame:#6e64a8;--framebg:#23212f}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR",sans-serif}
+main{max-width:1180px;margin:0 auto;padding:24px 16px 40px}
+h1{font-size:20px;margin:0 0 4px}
+.lead{color:var(--mute);margin:0 0 16px}
+.bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;position:sticky;top:0;z-index:2;background:var(--bg);padding:8px 0}
+.bar button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:5px 12px;cursor:pointer}
+.bar button[aria-pressed="true"]{border-color:var(--ink)}
+.bar input{flex:1;min-width:140px;accent-color:var(--run)}
+.clock{font-variant-numeric:tabular-nums;min-width:64px;text-align:right}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 14px 10px}
+.head{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.head b{font-size:16px}.head span{color:var(--mute);font-size:13px}
+.card p{margin:6px 0 8px;font-size:14px}
+svg{display:block;width:100%;height:auto}
+/* 좁은 화면에서는 넓은 그림이 카드 안에서만 옆으로 스크롤된다 */
+.scroll{overflow-x:auto}.scroll svg{min-width:680px}
+svg text{fill:var(--ink);font-family:inherit}
+.t-title{font-size:12px;font-weight:600}.t-mute{fill:var(--mute);font-size:10.5px}.t-tok{font-size:10px;font-weight:700}
+.box{fill:var(--box);stroke:var(--line)}
+.frame{fill:var(--framebg);stroke:var(--frame);stroke-dasharray:4 3}
+.slot{fill:var(--card);stroke:var(--line)}
+.on{stroke-width:1.8}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin:14px 0 0;padding:0;list-style:none;font-size:13.5px;color:var(--mute)}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:50%;vertical-align:-1px;margin-right:6px;border:1.6px solid}
+.cap{color:var(--mute);font-size:13.5px;margin-top:10px}
+.query{stroke:var(--conn);stroke-width:2;stroke-dasharray:4 4;fill:none;animation:flow .6s linear infinite}
+@keyframes flow{to{stroke-dashoffset:-8}}
+@media (prefers-reduced-motion:reduce){.query{animation:none}}
+
+.figs{display:grid;grid-template-columns:minmax(0,1fr);gap:14px}
+.scroll svg{min-width:780px}
+.cls{color:var(--mute);font-size:12px;font-family:ui-monospace,Menlo,monospace;margin:2px 0 6px;overflow-wrap:anywhere}
+.scn{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 4px}
+.scn button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:6px 14px;cursor:pointer}
+.scn button[aria-pressed="true"]{border-color:var(--ink);font-weight:600}
+.scn-lead{color:var(--mute);font-size:14px;margin:4px 0 0}
+.t-cap{fill:var(--mute);font-size:9px}
+.t-cap.inv{fill:var(--card);font-weight:700}
+.t-code{font-family:ui-monospace,Menlo,monospace;font-size:9.5px;fill:var(--ink)}
+.sq.on .t-code{fill:var(--run);font-weight:700}.sq.on .t-mute{fill:var(--run);font-weight:600}
+.t-big{font-size:16px;font-weight:700;font-variant-numeric:tabular-nums}
+.box.on{stroke:var(--run);stroke-width:2}
+.lane{fill:var(--card);stroke:var(--line)}
+.lane.on{stroke:var(--run);stroke-width:1.8}
+.lane.hold{stroke:var(--hold);stroke-dasharray:3 2}
+.t-tok.k-ok{fill:var(--conn)}.t-tok.k-bad{fill:var(--fail)}.t-tok.k-hold{fill:var(--hold)}.t-tok.k-run{fill:var(--run)}.t-tok.k-none{fill:var(--mute);font-weight:400}
+.flow{fill:none;stroke:var(--line);stroke-width:1.3}
+.flow.on{stroke:var(--run);stroke-width:2.4;stroke-dasharray:6 4;animation:flow .6s linear infinite}
+.flow.bad{stroke:var(--fail);stroke-width:2.4;stroke-dasharray:6 4;animation:flow .6s linear infinite}
+@media (prefers-reduced-motion:reduce){.flow.on,.flow.bad{animation:none}}
+.ah-idle{fill:var(--line)}.ah-run{fill:var(--run)}.ah-bad{fill:var(--fail)}
+.fl rect{fill:var(--card);stroke:var(--run);stroke-width:1.2}
+.fl text{font-size:9.5px;font-weight:700;fill:var(--run)}
+.fl.bad rect{stroke:var(--fail);fill:var(--failbg)}.fl.bad text{fill:var(--fail)}
+.cell{fill:var(--conn);stroke:var(--conn)}
+.cell.new{fill:var(--run);stroke:var(--run)}
+.slot2{fill:var(--card);stroke:var(--line)}
+.slot2.busy{fill:var(--hold);stroke:var(--hold)}
+.tl-base{stroke:var(--line);stroke-width:1}
+.tl-cur{stroke:var(--run);stroke-width:1.4;stroke-dasharray:3 2}
+.sg-lease{fill:var(--runbg);stroke:var(--run);stroke-width:.6}
+.sg-send{fill:var(--run)}
+.sg-hold{fill:var(--hold)}
+.sg-fail{fill:var(--fail)}
+.sg-ok{fill:var(--conn)}
+.sg-down{fill:var(--failbg);stroke:var(--fail);stroke-width:.8}
+.sg-valid{fill:var(--connbg);stroke:var(--conn);stroke-width:.8}
+.sg-wrong{fill:var(--holdbg);stroke:var(--hold);stroke-width:.8;stroke-dasharray:3 2}
+.lg{font-size:10.5px}
+.lg-n{font-weight:700;fill:var(--run)}.lg-n.bad{fill:var(--fail)}
+.lg-who{font-weight:700}.lg-what{fill:var(--mute)}.lg-what.bad{fill:var(--fail);font-weight:600}
+.now{min-height:1.6em;font-weight:600;margin:8px 0 4px!important}
+.steps{margin:0 0 8px;padding-left:22px;font-size:12.5px;color:var(--mute);columns:2;column-gap:28px}
+@media (max-width:820px){.steps{columns:1}}
+.steps li{margin:1px 0;break-inside:avoid}.steps li.done{color:var(--ink)}.steps li.cur{color:var(--run);font-weight:600}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:6px 0 4px}
+@media (max-width:700px){.stats{grid-template-columns:1fr}}
+.stat{border:1px solid var(--line);border-radius:8px;padding:4px 8px}
+.stat small{display:block;color:var(--mute);font-size:11.5px}
+.stat b{font-variant-numeric:tabular-nums;font-size:15px}
+.stat b.k-ok{color:var(--conn)}.stat b.k-bad{color:var(--fail)}.stat b.k-hold{color:var(--hold)}
+</style></head>
+<body><main>
+<h1>Spring Fig 6 · 동네 목록 캐시: 몰린 요청, 이벤트로 고치기, 늦게 들어온 옛 값, 동시 만료</h1>
+<p class="lead">동네 최신 글 목록을 Valkey 에 둡니다. 목록 키(region:{id}:latest)에는 글 ID 만, 제목은 글마다 post:{id} 에 둡니다. 위는 단계마다 누가 누구에게 요청을 보냈는지, 가운데는 Valkey 키 세 개와 PostgreSQL 커넥션 풀, 그 아래는 이 방식이 쓰는 Valkey 명령, 맨 아래는 시간축입니다.</p>
+<div class="scn"><button data-scn-btn="stampede">동시에 몰린 150명</button><button data-scn-btn="event">이벤트로 고치기</button><button data-scn-btn="race">늦게 들어온 옛 값</button><button data-scn-btn="ttl">TTL 동시 만료 (계산)</button></div>
+<p class="scn-lead" data-scn-lead></p>
+<div class="bar"><button data-play>❚❚ 멈춤</button><button data-speed="0.5" aria-pressed="false">0.5×</button><button data-speed="1" aria-pressed="true">1×</button><button data-speed="2" aria-pressed="false">2×</button><input type="range" min="0" step="0.005" value="0" data-time aria-label="시간"><span class="clock" data-clock>0.00초</span></div>
+<div class="figs">
+<section class="card" data-card="stampede-before" data-scn="stampede" hidden>
+<div class="head"><b>가 · 락 없이 cache-aside</b></div>
+<div class="cls">없으면 각자 DB 에서 읽어 캐시에 넣는다</div>
+<div class="scroll"><svg viewBox="0 0 990 525" role="img" aria-label="이웃 앱, API 서버, Valkey, PostgreSQL, RabbitMQ 사이에 오가는 요청과 시간축">
+<defs><marker id="ah-idle-stampede-before" viewBox="0 0 8 8" refX="7" refY="4" markerUnits="userSpaceOnUse" markerWidth="7" markerHeight="7" orient="auto"><path class="ah-idle" d="M0 0L8 4L0 8z"/></marker><marker id="ah-run-stampede-before" viewBox="0 0 8 8" refX="7" refY="4" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto"><path class="ah-run" d="M0 0L8 4L0 8z"/></marker><marker id="ah-bad-stampede-before" viewBox="0 0 8 8" refX="7" refY="4" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto"><path class="ah-bad" d="M0 0L8 4L0 8z"/></marker></defs>
+<rect class="box" data-box="app" x="10" y="30" width="130" height="130" rx="8"/>
+<text class="t-title" x="20" y="50">이웃 앱</text><text class="t-mute" x="20" y="65">목록 · 글쓰기</text>
+<text class="t-tok" data-app1 x="20" y="112"></text><text class="t-tok" data-app2 x="20" y="128"></text>
+<rect class="box" data-box="api" x="170" y="10" width="240" height="155" rx="8"/>
+<text class="t-title" x="180" y="27">API 서버 (Spring 앱)</text>
+<rect class="lane" data-lane="l1" x="180" y="38" width="220" height="34" rx="6"/><text class="t-mute" x="188" y="52">먼저 온 요청</text><text class="t-tok" data-worker="l1" x="188" y="66"></text><rect class="lane" data-lane="l2" x="180" y="78" width="220" height="34" rx="6"/><text class="t-mute" x="188" y="92">나머지 149명</text><text class="t-tok" data-worker="l2" x="188" y="106"></text><rect class="lane" data-lane="l3" x="180" y="118" width="220" height="34" rx="6"/><text class="t-mute" x="188" y="132">캐시 리스너</text><text class="t-tok" data-worker="l3" x="188" y="146"></text>
+<rect class="box" data-box="vk" x="470" y="10" width="510" height="155" rx="8"/>
+<text class="t-title" x="480" y="27">Valkey</text><text class="t-cap" x="970" y="27" text-anchor="end">키 · 값 · 만료</text>
+<g><text class="t-code" x="480" y="58">region:42:latest</text><text class="t-cap" x="480" y="71">Sorted Set · 글 ID 만 (최신 순)</text>
+<rect class="cell" data-cell="0" x="636" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="0" x="650" y="58.5" text-anchor="middle"></text><rect class="cell" data-cell="1" x="668" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="1" x="682" y="58.5" text-anchor="middle"></text><rect class="cell" data-cell="2" x="700" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="2" x="714" y="58.5" text-anchor="middle"></text><rect class="cell" data-cell="3" x="732" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="3" x="746" y="58.5" text-anchor="middle"></text><rect class="cell" data-cell="4" x="764" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="4" x="778" y="58.5" text-anchor="middle"></text><rect class="cell" data-cell="5" x="796" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="5" x="810" y="58.5" text-anchor="middle"></text><text class="t-tok" data-feednone x="636" y="58"></text><text class="t-mute" data-feednote x="970" y="58" text-anchor="end"></text></g>
+<line class="tl-base" x1="480" x2="970" y1="78" y2="78"/>
+<text class="t-code" x="480" y="98">post:{id}</text><text class="t-cap" x="480" y="111">String · 글 요약 JSON</text>
+<text class="t-tok" data-post x="636" y="98"></text><text class="t-mute" data-postttl x="970" y="98" text-anchor="end"></text>
+<line class="tl-base" x1="480" x2="970" y1="118" y2="118"/>
+<g><text class="t-code" x="480" y="138">lock:region:42</text><text class="t-cap" x="480" y="151">String · 다시 만드는 사람 표시</text>
+<text class="t-tok" data-lock x="636" y="138"></text><text class="t-mute" data-lockpx x="970" y="138" text-anchor="end"></text></g>
+<rect class="box" data-box="log" x="10" y="200" width="325" height="115" rx="8"/>
+<text class="t-title" x="20" y="218">이번 단계에 오간 요청</text><g data-log></g>
+<rect class="box" data-box="mq" x="345" y="200" width="110" height="115" rx="8"/>
+<text class="t-title" x="355" y="218">RabbitMQ</text><text class="t-cap" x="355" y="232">cache.post-events</text><text class="t-tok" data-mq x="355" y="270"></text>
+<rect class="box" data-box="db" x="490" y="200" width="490" height="115" rx="8"/>
+<text class="t-title" x="500" y="218">PostgreSQL</text><text class="t-mute" x="500" y="237">커넥션 풀</text><rect class="slot2" data-slot="0" x="570" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="1" x="589" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="2" x="608" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="3" x="627" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="4" x="646" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="5" x="665" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="6" x="684" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="7" x="703" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="8" x="722" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="9" x="741" y="226" width="15" height="14" rx="2"/><text class="t-tok" data-pool x="770" y="237"></text>
+<text class="t-big" data-q x="500" y="280"></text><text class="t-mute" x="500" y="298">목록 쿼리 (누적)</text><text class="t-tok" data-dbnote x="640" y="280"></text>
+<rect class="box" data-box="cmd" x="10" y="325" width="970" height="72" rx="8"/>
+<text class="t-title" x="20" y="342">Valkey 명령</text><text class="t-cap" x="970" y="342" text-anchor="end">이번 단계에 쓴 명령은 파랗게</text>
+<g class="sq" data-sq="0"><text class="t-mute" x="20" y="359">읽기</text><text class="t-code" x="128" y="359">ZREVRANGE region:42:latest 0 30   → 없으면 각자 DB 에서 목록을 만든다</text></g><g class="sq" data-sq="1"><text class="t-mute" x="20" y="374">다시 만들기</text><text class="t-code" x="128" y="374">Lua 한 번: DEL → ZADD -1 "0"(표시용) → ZADD 글ID × 30 → PEXPIRE   (읽는 쪽이 빈 목록을 보지 않게)</text></g><g class="sq" data-sq="2"><text class="t-mute" x="20" y="389">락</text><text class="t-code" x="128" y="389">없음. 처음에 없음을 본 요청은 모두 DB 로 간다</text></g>
+<rect class="box" x="10" y="405" width="970" height="115" rx="8"/>
+<text class="t-title" x="20" y="422">시간축</text><text class="t-tok k-run" data-now-t x="70" y="422"></text><text class="t-cap" x="960" y="422" text-anchor="end">굵은 막대 = 기다림 · 바쁨,  얇은 줄 = TTL,  색 띠 = 화면에 보인 값,  세로 눈금 = 지움 · 만료 · 받음</text>
+<text class="t-mute" x="20" y="451">요청들</text><line class="tl-base" x1="120" x2="960" y1="447" y2="447"/><text class="t-mute" x="20" y="474">PostgreSQL</text><line class="tl-base" x1="120" x2="960" y1="470" y2="470"/><line class="tl-base" x1="120" x2="120" y1="479" y2="483"/><text class="t-cap" x="120" y="514" text-anchor="middle">0ms</text><line class="tl-base" x1="324.8780487804878" x2="324.8780487804878" y1="479" y2="483"/><text class="t-cap" x="324.8780487804878" y="514" text-anchor="middle">200ms</text><line class="tl-base" x1="529.7560975609756" x2="529.7560975609756" y1="479" y2="483"/><text class="t-cap" x="529.7560975609756" y="514" text-anchor="middle">400ms</text><line class="tl-base" x1="734.6341463414634" x2="734.6341463414634" y1="479" y2="483"/><text class="t-cap" x="734.6341463414634" y="514" text-anchor="middle">600ms</text><line class="tl-base" x1="939.5121951219512" x2="939.5121951219512" y1="479" y2="483"/><text class="t-cap" x="939.5121951219512" y="514" text-anchor="middle">800ms</text><g data-segs></g><line class="tl-cur" data-cursor y1="432" y2="503"/>
+<path class="flow" data-flow="app:l1" d="M140 55 H178" marker-end="url(#ah-idle-stampede-before)"/><path class="flow" data-flow="app:l2" d="M140 95 H178" marker-end="url(#ah-idle-stampede-before)"/><path class="flow" data-flow="l1:vk" d="M400 55 H468" marker-end="url(#ah-idle-stampede-before)"/><path class="flow" data-flow="l2:vk" d="M400 95 H468" marker-end="url(#ah-idle-stampede-before)"/><path class="flow" data-flow="l3:vk" d="M400 135 H468" marker-end="url(#ah-idle-stampede-before)"/><path class="flow" data-flow="l1:db" d="M215 165 V176 H560 V198" marker-end="url(#ah-idle-stampede-before)"/><path class="flow" data-flow="l2:db" d="M255 165 V186 H640 V198" marker-end="url(#ah-idle-stampede-before)"/><path class="flow" data-flow="db:mq" d="M488 245 H457" marker-end="url(#ah-idle-stampede-before)"/><path class="flow" data-flow="mq:l3" d="M385 198 V167" marker-end="url(#ah-idle-stampede-before)"/>
+<g class="fl" data-fl="app:l1" data-cx="159" data-cy="55" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="159" y="58.5"></text></g><g class="fl" data-fl="app:l2" data-cx="159" data-cy="95" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="159" y="98.5"></text></g><g class="fl" data-fl="l1:vk" data-cx="434" data-cy="55" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="434" y="58.5"></text></g><g class="fl" data-fl="l2:vk" data-cx="434" data-cy="95" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="434" y="98.5"></text></g><g class="fl" data-fl="l3:vk" data-cx="434" data-cy="135" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="434" y="138.5"></text></g><g class="fl" data-fl="l1:db" data-cx="290" data-cy="176" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="290" y="179.5"></text></g><g class="fl" data-fl="l2:db" data-cx="545" data-cy="186" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="545" y="189.5"></text></g><g class="fl" data-fl="db:mq" data-cx="472" data-cy="245" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="472" y="248.5"></text></g><g class="fl" data-fl="mq:l3" data-cx="385" data-cy="182" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="385" y="185.5"></text></g>
+</svg></div>
+<p class="now" data-now></p>
+<ol class="steps" data-steps></ol>
+<div class="stats"><div class="stat"><small>목록 DB 쿼리</small><b data-stat="0">–</b></div><div class="stat"><small>가장 늦은 응답</small><b data-stat="1">–</b></div><div class="stat"><small>받은 사람</small><b data-stat="2">–</b></div></div>
+</section>
+<section class="card" data-card="stampede-after" data-scn="stampede" hidden>
+<div class="head"><b>나 · single-flight (SET NX PX 락)</b></div>
+<div class="cls">없으면 락을 잡은 한 명만 DB 에서 다시 만들고, 나머지는 20ms 마다 다시 읽는다</div>
+<div class="scroll"><svg viewBox="0 0 990 525" role="img" aria-label="이웃 앱, API 서버, Valkey, PostgreSQL, RabbitMQ 사이에 오가는 요청과 시간축">
+<defs><marker id="ah-idle-stampede-after" viewBox="0 0 8 8" refX="7" refY="4" markerUnits="userSpaceOnUse" markerWidth="7" markerHeight="7" orient="auto"><path class="ah-idle" d="M0 0L8 4L0 8z"/></marker><marker id="ah-run-stampede-after" viewBox="0 0 8 8" refX="7" refY="4" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto"><path class="ah-run" d="M0 0L8 4L0 8z"/></marker><marker id="ah-bad-stampede-after" viewBox="0 0 8 8" refX="7" refY="4" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto"><path class="ah-bad" d="M0 0L8 4L0 8z"/></marker></defs>
+<rect class="box" data-box="app" x="10" y="30" width="130" height="130" rx="8"/>
+<text class="t-title" x="20" y="50">이웃 앱</text><text class="t-mute" x="20" y="65">목록 · 글쓰기</text>
+<text class="t-tok" data-app1 x="20" y="112"></text><text class="t-tok" data-app2 x="20" y="128"></text>
+<rect class="box" data-box="api" x="170" y="10" width="240" height="155" rx="8"/>
+<text class="t-title" x="180" y="27">API 서버 (Spring 앱)</text>
+<rect class="lane" data-lane="l1" x="180" y="38" width="220" height="34" rx="6"/><text class="t-mute" x="188" y="52">먼저 온 요청</text><text class="t-tok" data-worker="l1" x="188" y="66"></text><rect class="lane" data-lane="l2" x="180" y="78" width="220" height="34" rx="6"/><text class="t-mute" x="188" y="92">나머지 149명</text><text class="t-tok" data-worker="l2" x="188" y="106"></text><rect class="lane" data-lane="l3" x="180" y="118" width="220" height="34" rx="6"/><text class="t-mute" x="188" y="132">캐시 리스너</text><text class="t-tok" data-worker="l3" x="188" y="146"></text>
+<rect class="box" data-box="vk" x="470" y="10" width="510" height="155" rx="8"/>
+<text class="t-title" x="480" y="27">Valkey</text><text class="t-cap" x="970" y="27" text-anchor="end">키 · 값 · 만료</text>
+<g><text class="t-code" x="480" y="58">region:42:latest</text><text class="t-cap" x="480" y="71">Sorted Set · 글 ID 만 (최신 순)</text>
+<rect class="cell" data-cell="0" x="636" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="0" x="650" y="58.5" text-anchor="middle"></text><rect class="cell" data-cell="1" x="668" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="1" x="682" y="58.5" text-anchor="middle"></text><rect class="cell" data-cell="2" x="700" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="2" x="714" y="58.5" text-anchor="middle"></text><rect class="cell" data-cell="3" x="732" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="3" x="746" y="58.5" text-anchor="middle"></text><rect class="cell" data-cell="4" x="764" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="4" x="778" y="58.5" text-anchor="middle"></text><rect class="cell" data-cell="5" x="796" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="5" x="810" y="58.5" text-anchor="middle"></text><text class="t-tok" data-feednone x="636" y="58"></text><text class="t-mute" data-feednote x="970" y="58" text-anchor="end"></text></g>
+<line class="tl-base" x1="480" x2="970" y1="78" y2="78"/>
+<text class="t-code" x="480" y="98">post:{id}</text><text class="t-cap" x="480" y="111">String · 글 요약 JSON</text>
+<text class="t-tok" data-post x="636" y="98"></text><text class="t-mute" data-postttl x="970" y="98" text-anchor="end"></text>
+<line class="tl-base" x1="480" x2="970" y1="118" y2="118"/>
+<g><text class="t-code" x="480" y="138">lock:region:42</text><text class="t-cap" x="480" y="151">String · 다시 만드는 사람 표시</text>
+<text class="t-tok" data-lock x="636" y="138"></text><text class="t-mute" data-lockpx x="970" y="138" text-anchor="end"></text></g>
+<rect class="box" data-box="log" x="10" y="200" width="325" height="115" rx="8"/>
+<text class="t-title" x="20" y="218">이번 단계에 오간 요청</text><g data-log></g>
+<rect class="box" data-box="mq" x="345" y="200" width="110" height="115" rx="8"/>
+<text class="t-title" x="355" y="218">RabbitMQ</text><text class="t-cap" x="355" y="232">cache.post-events</text><text class="t-tok" data-mq x="355" y="270"></text>
+<rect class="box" data-box="db" x="490" y="200" width="490" height="115" rx="8"/>
+<text class="t-title" x="500" y="218">PostgreSQL</text><text class="t-mute" x="500" y="237">커넥션 풀</text><rect class="slot2" data-slot="0" x="570" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="1" x="589" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="2" x="608" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="3" x="627" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="4" x="646" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="5" x="665" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="6" x="684" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="7" x="703" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="8" x="722" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="9" x="741" y="226" width="15" height="14" rx="2"/><text class="t-tok" data-pool x="770" y="237"></text>
+<text class="t-big" data-q x="500" y="280"></text><text class="t-mute" x="500" y="298">목록 쿼리 (누적)</text><text class="t-tok" data-dbnote x="640" y="280"></text>
+<rect class="box" data-box="cmd" x="10" y="325" width="970" height="72" rx="8"/>
+<text class="t-title" x="20" y="342">Valkey 명령</text><text class="t-cap" x="970" y="342" text-anchor="end">이번 단계에 쓴 명령은 파랗게</text>
+<g class="sq" data-sq="0"><text class="t-mute" x="20" y="359">읽기</text><text class="t-code" x="128" y="359">ZREVRANGE region:42:latest 0 30   → 없으면 락을 잡아 본다</text></g><g class="sq" data-sq="1"><text class="t-mute" x="20" y="374">락 잡기</text><text class="t-code" x="128" y="374">SET lock:region:42 &lt;토큰> NX PX 500   → 한 명만 OK. 나머지는 20ms 마다 다시 읽기 (최대 10번)</text></g><g class="sq" data-sq="2"><text class="t-mute" x="20" y="389">넣고 풀기</text><text class="t-code" x="128" y="389">Lua: DEL → ZADD → PEXPIRE,  이어서 Lua: lock 값이 내 토큰이면 DEL</text></g>
+<rect class="box" x="10" y="405" width="970" height="115" rx="8"/>
+<text class="t-title" x="20" y="422">시간축</text><text class="t-tok k-run" data-now-t x="70" y="422"></text><text class="t-cap" x="960" y="422" text-anchor="end">굵은 막대 = 기다림 · 바쁨,  얇은 줄 = TTL,  색 띠 = 화면에 보인 값,  세로 눈금 = 지움 · 만료 · 받음</text>
+<text class="t-mute" x="20" y="451">요청들</text><line class="tl-base" x1="120" x2="960" y1="447" y2="447"/><text class="t-mute" x="20" y="474">PostgreSQL</text><line class="tl-base" x1="120" x2="960" y1="470" y2="470"/><line class="tl-base" x1="120" x2="120" y1="479" y2="483"/><text class="t-cap" x="120" y="514" text-anchor="middle">0ms</text><line class="tl-base" x1="324.8780487804878" x2="324.8780487804878" y1="479" y2="483"/><text class="t-cap" x="324.8780487804878" y="514" text-anchor="middle">200ms</text><line class="tl-base" x1="529.7560975609756" x2="529.7560975609756" y1="479" y2="483"/><text class="t-cap" x="529.7560975609756" y="514" text-anchor="middle">400ms</text><line class="tl-base" x1="734.6341463414634" x2="734.6341463414634" y1="479" y2="483"/><text class="t-cap" x="734.6341463414634" y="514" text-anchor="middle">600ms</text><line class="tl-base" x1="939.5121951219512" x2="939.5121951219512" y1="479" y2="483"/><text class="t-cap" x="939.5121951219512" y="514" text-anchor="middle">800ms</text><g data-segs></g><line class="tl-cur" data-cursor y1="432" y2="503"/>
+<path class="flow" data-flow="app:l1" d="M140 55 H178" marker-end="url(#ah-idle-stampede-after)"/><path class="flow" data-flow="app:l2" d="M140 95 H178" marker-end="url(#ah-idle-stampede-after)"/><path class="flow" data-flow="l1:vk" d="M400 55 H468" marker-end="url(#ah-idle-stampede-after)"/><path class="flow" data-flow="l2:vk" d="M400 95 H468" marker-end="url(#ah-idle-stampede-after)"/><path class="flow" data-flow="l3:vk" d="M400 135 H468" marker-end="url(#ah-idle-stampede-after)"/><path class="flow" data-flow="l1:db" d="M215 165 V176 H560 V198" marker-end="url(#ah-idle-stampede-after)"/><path class="flow" data-flow="l2:db" d="M255 165 V186 H640 V198" marker-end="url(#ah-idle-stampede-after)"/><path class="flow" data-flow="db:mq" d="M488 245 H457" marker-end="url(#ah-idle-stampede-after)"/><path class="flow" data-flow="mq:l3" d="M385 198 V167" marker-end="url(#ah-idle-stampede-after)"/>
+<g class="fl" data-fl="app:l1" data-cx="159" data-cy="55" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="159" y="58.5"></text></g><g class="fl" data-fl="app:l2" data-cx="159" data-cy="95" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="159" y="98.5"></text></g><g class="fl" data-fl="l1:vk" data-cx="434" data-cy="55" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="434" y="58.5"></text></g><g class="fl" data-fl="l2:vk" data-cx="434" data-cy="95" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="434" y="98.5"></text></g><g class="fl" data-fl="l3:vk" data-cx="434" data-cy="135" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="434" y="138.5"></text></g><g class="fl" data-fl="l1:db" data-cx="290" data-cy="176" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="290" y="179.5"></text></g><g class="fl" data-fl="l2:db" data-cx="545" data-cy="186" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="545" y="189.5"></text></g><g class="fl" data-fl="db:mq" data-cx="472" data-cy="245" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="472" y="248.5"></text></g><g class="fl" data-fl="mq:l3" data-cx="385" data-cy="182" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="385" y="185.5"></text></g>
+</svg></div>
+<p class="now" data-now></p>
+<ol class="steps" data-steps></ol>
+<div class="stats"><div class="stat"><small>목록 DB 쿼리</small><b data-stat="0">–</b></div><div class="stat"><small>가장 늦은 응답</small><b data-stat="1">–</b></div><div class="stat"><small>받은 사람</small><b data-stat="2">–</b></div></div>
+</section>
+<section class="card" data-card="event-only" data-scn="event" hidden>
+<div class="head"><b>다 · 이벤트로 고치기 (목록 키는 지우지 않음)</b></div>
+<div class="cls">새 글 ZADD (키가 있을 때만) · 제목 수정 DEL post:{id} · 블라인드 ZREM + DEL</div>
+<div class="scroll"><svg viewBox="0 0 990 405" role="img" aria-label="이웃 앱, API 서버, Valkey, PostgreSQL, RabbitMQ 사이에 오가는 요청">
+<defs><marker id="ah-idle-event-only" viewBox="0 0 8 8" refX="7" refY="4" markerUnits="userSpaceOnUse" markerWidth="7" markerHeight="7" orient="auto"><path class="ah-idle" d="M0 0L8 4L0 8z"/></marker><marker id="ah-run-event-only" viewBox="0 0 8 8" refX="7" refY="4" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto"><path class="ah-run" d="M0 0L8 4L0 8z"/></marker><marker id="ah-bad-event-only" viewBox="0 0 8 8" refX="7" refY="4" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto"><path class="ah-bad" d="M0 0L8 4L0 8z"/></marker></defs>
+<rect class="box" data-box="app" x="10" y="30" width="130" height="130" rx="8"/>
+<text class="t-title" x="20" y="50">이웃 앱</text><text class="t-mute" x="20" y="65">목록 · 글쓰기</text>
+<text class="t-tok" data-app1 x="20" y="112"></text><text class="t-tok" data-app2 x="20" y="128"></text>
+<rect class="box" data-box="api" x="170" y="10" width="240" height="155" rx="8"/>
+<text class="t-title" x="180" y="27">API 서버 (Spring 앱)</text>
+<rect class="lane" data-lane="l1" x="180" y="38" width="220" height="34" rx="6"/><text class="t-mute" x="188" y="52">글 API</text><text class="t-tok" data-worker="l1" x="188" y="66"></text><rect class="lane" data-lane="l2" x="180" y="78" width="220" height="34" rx="6"/><text class="t-mute" x="188" y="92">목록 요청</text><text class="t-tok" data-worker="l2" x="188" y="106"></text><rect class="lane" data-lane="l3" x="180" y="118" width="220" height="34" rx="6"/><text class="t-mute" x="188" y="132">캐시 리스너</text><text class="t-tok" data-worker="l3" x="188" y="146"></text>
+<rect class="box" data-box="vk" x="470" y="10" width="510" height="155" rx="8"/>
+<text class="t-title" x="480" y="27">Valkey</text><text class="t-cap" x="970" y="27" text-anchor="end">키 · 값 · 만료</text>
+<g><text class="t-code" x="480" y="58">region:42:latest</text><text class="t-cap" x="480" y="71">Sorted Set · 글 ID 만 (최신 순)</text>
+<rect class="cell" data-cell="0" x="636" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="0" x="650" y="58.5" text-anchor="middle"></text><rect class="cell" data-cell="1" x="668" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="1" x="682" y="58.5" text-anchor="middle"></text><rect class="cell" data-cell="2" x="700" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="2" x="714" y="58.5" text-anchor="middle"></text><rect class="cell" data-cell="3" x="732" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="3" x="746" y="58.5" text-anchor="middle"></text><rect class="cell" data-cell="4" x="764" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="4" x="778" y="58.5" text-anchor="middle"></text><rect class="cell" data-cell="5" x="796" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="5" x="810" y="58.5" text-anchor="middle"></text><text class="t-tok" data-feednone x="636" y="58"></text><text class="t-mute" data-feednote x="970" y="58" text-anchor="end"></text></g>
+<line class="tl-base" x1="480" x2="970" y1="78" y2="78"/>
+<text class="t-code" x="480" y="98">post:2</text><text class="t-cap" x="480" y="111">String · 글 요약 JSON</text>
+<text class="t-tok" data-post x="636" y="98"></text><text class="t-mute" data-postttl x="970" y="98" text-anchor="end"></text>
+<line class="tl-base" x1="480" x2="970" y1="118" y2="118"/>
+<g opacity=".45"><text class="t-code" x="480" y="138">lock:region:42</text><text class="t-cap" x="480" y="151">String · 다시 만드는 사람 표시</text>
+<text class="t-tok" data-lock x="636" y="138"></text><text class="t-mute" data-lockpx x="970" y="138" text-anchor="end"></text></g>
+<rect class="box" data-box="log" x="10" y="200" width="325" height="115" rx="8"/>
+<text class="t-title" x="20" y="218">이번 단계에 오간 요청</text><g data-log></g>
+<rect class="box" data-box="mq" x="345" y="200" width="110" height="115" rx="8"/>
+<text class="t-title" x="355" y="218">RabbitMQ</text><text class="t-cap" x="355" y="232">cache.post-events</text><text class="t-tok" data-mq x="355" y="270"></text>
+<rect class="box" data-box="db" x="490" y="200" width="490" height="115" rx="8"/>
+<text class="t-title" x="500" y="218">PostgreSQL</text><text class="t-mute" x="500" y="237">커넥션 풀</text><rect class="slot2" data-slot="0" x="570" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="1" x="589" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="2" x="608" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="3" x="627" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="4" x="646" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="5" x="665" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="6" x="684" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="7" x="703" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="8" x="722" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="9" x="741" y="226" width="15" height="14" rx="2"/><text class="t-tok" data-pool x="770" y="237"></text>
+<text class="t-big" data-q x="500" y="280"></text><text class="t-mute" x="500" y="298">목록 쿼리 (누적)</text><text class="t-tok" data-dbnote x="640" y="280"></text>
+<rect class="box" data-box="cmd" x="10" y="325" width="970" height="72" rx="8"/>
+<text class="t-title" x="20" y="342">Valkey 명령</text><text class="t-cap" x="970" y="342" text-anchor="end">이번 단계에 쓴 명령은 파랗게</text>
+<g class="sq" data-sq="0"><text class="t-mute" x="20" y="359">새 글</text><text class="t-code" x="128" y="359">Lua: region:42:latest 가 있으면 ZADD 글ID 글ID → ZREMRANGEBYRANK 로 100개만 남김. 없으면 안 넣는다</text></g><g class="sq" data-sq="1"><text class="t-mute" x="20" y="374">제목 수정</text><text class="t-code" x="128" y="374">DEL post:{id}   (+ 1초 뒤 한 번 더 DEL)   목록의 ID 는 그대로</text></g><g class="sq" data-sq="2"><text class="t-mute" x="20" y="389">블라인드</text><text class="t-code" x="128" y="389">ZREM region:42:latest {id}  +  DEL post:{id}  (+ 1초 뒤 한 번 더 DEL)</text></g>
+
+<path class="flow" data-flow="app:l1" d="M140 55 H178" marker-end="url(#ah-idle-event-only)"/><path class="flow" data-flow="app:l2" d="M140 95 H178" marker-end="url(#ah-idle-event-only)"/><path class="flow" data-flow="l1:vk" d="M400 55 H468" marker-end="url(#ah-idle-event-only)"/><path class="flow" data-flow="l2:vk" d="M400 95 H468" marker-end="url(#ah-idle-event-only)"/><path class="flow" data-flow="l3:vk" d="M400 135 H468" marker-end="url(#ah-idle-event-only)"/><path class="flow" data-flow="l1:db" d="M215 165 V176 H560 V198" marker-end="url(#ah-idle-event-only)"/><path class="flow" data-flow="l2:db" d="M255 165 V186 H640 V198" marker-end="url(#ah-idle-event-only)"/><path class="flow" data-flow="db:mq" d="M488 245 H457" marker-end="url(#ah-idle-event-only)"/><path class="flow" data-flow="mq:l3" d="M385 198 V167" marker-end="url(#ah-idle-event-only)"/>
+<g class="fl" data-fl="app:l1" data-cx="159" data-cy="55" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="159" y="58.5"></text></g><g class="fl" data-fl="app:l2" data-cx="159" data-cy="95" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="159" y="98.5"></text></g><g class="fl" data-fl="l1:vk" data-cx="434" data-cy="55" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="434" y="58.5"></text></g><g class="fl" data-fl="l2:vk" data-cx="434" data-cy="95" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="434" y="98.5"></text></g><g class="fl" data-fl="l3:vk" data-cx="434" data-cy="135" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="434" y="138.5"></text></g><g class="fl" data-fl="l1:db" data-cx="290" data-cy="176" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="290" y="179.5"></text></g><g class="fl" data-fl="l2:db" data-cx="545" data-cy="186" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="545" y="189.5"></text></g><g class="fl" data-fl="db:mq" data-cx="472" data-cy="245" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="472" y="248.5"></text></g><g class="fl" data-fl="mq:l3" data-cx="385" data-cy="182" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="385" y="185.5"></text></g>
+</svg></div>
+<p class="now" data-now></p>
+<ol class="steps" data-steps></ol>
+<div class="stats"><div class="stat"><small>목록 다시 만들기</small><b data-stat="0">–</b></div><div class="stat"><small>화면 목록</small><b data-stat="1">–</b></div><div class="stat"><small>같은 이벤트 2번 더</small><b data-stat="2">–</b></div></div>
+</section>
+<section class="card" data-card="race-before" data-scn="race" hidden>
+<div class="head"><b>라 · 한 번만 지움</b></div>
+<div class="cls">제목이 바뀌면 DEL post:7 한 번. 늦게 들어온 옛 값은 TTL 이 지운다</div>
+<div class="scroll"><svg viewBox="0 0 990 525" role="img" aria-label="이웃 앱, API 서버, Valkey, PostgreSQL, RabbitMQ 사이에 오가는 요청과 시간축">
+<defs><marker id="ah-idle-race-before" viewBox="0 0 8 8" refX="7" refY="4" markerUnits="userSpaceOnUse" markerWidth="7" markerHeight="7" orient="auto"><path class="ah-idle" d="M0 0L8 4L0 8z"/></marker><marker id="ah-run-race-before" viewBox="0 0 8 8" refX="7" refY="4" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto"><path class="ah-run" d="M0 0L8 4L0 8z"/></marker><marker id="ah-bad-race-before" viewBox="0 0 8 8" refX="7" refY="4" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto"><path class="ah-bad" d="M0 0L8 4L0 8z"/></marker></defs>
+<rect class="box" data-box="app" x="10" y="30" width="130" height="130" rx="8"/>
+<text class="t-title" x="20" y="50">이웃 앱</text><text class="t-mute" x="20" y="65">목록 · 글쓰기</text>
+<text class="t-tok" data-app1 x="20" y="112"></text><text class="t-tok" data-app2 x="20" y="128"></text>
+<rect class="box" data-box="api" x="170" y="10" width="240" height="155" rx="8"/>
+<text class="t-title" x="180" y="27">API 서버 (Spring 앱)</text>
+<rect class="lane" data-lane="l1" x="180" y="38" width="220" height="34" rx="6"/><text class="t-mute" x="188" y="52">요청 R</text><text class="t-tok" data-worker="l1" x="188" y="66"></text><rect class="lane" data-lane="l2" x="180" y="78" width="220" height="34" rx="6"/><text class="t-mute" x="188" y="92">글 API</text><text class="t-tok" data-worker="l2" x="188" y="106"></text><rect class="lane" data-lane="l3" x="180" y="118" width="220" height="34" rx="6"/><text class="t-mute" x="188" y="132">캐시 리스너</text><text class="t-tok" data-worker="l3" x="188" y="146"></text>
+<rect class="box" data-box="vk" x="470" y="10" width="510" height="155" rx="8"/>
+<text class="t-title" x="480" y="27">Valkey</text><text class="t-cap" x="970" y="27" text-anchor="end">키 · 값 · 만료</text>
+<g opacity=".45"><text class="t-code" x="480" y="58">region:42:latest</text><text class="t-cap" x="480" y="71">Sorted Set · 글 ID 만 (최신 순)</text>
+<rect class="cell" data-cell="0" x="636" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="0" x="650" y="58.5" text-anchor="middle"></text><rect class="cell" data-cell="1" x="668" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="1" x="682" y="58.5" text-anchor="middle"></text><rect class="cell" data-cell="2" x="700" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="2" x="714" y="58.5" text-anchor="middle"></text><rect class="cell" data-cell="3" x="732" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="3" x="746" y="58.5" text-anchor="middle"></text><rect class="cell" data-cell="4" x="764" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="4" x="778" y="58.5" text-anchor="middle"></text><rect class="cell" data-cell="5" x="796" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="5" x="810" y="58.5" text-anchor="middle"></text><text class="t-tok" data-feednone x="636" y="58"></text><text class="t-mute" data-feednote x="970" y="58" text-anchor="end"></text></g>
+<line class="tl-base" x1="480" x2="970" y1="78" y2="78"/>
+<text class="t-code" x="480" y="98">post:7</text><text class="t-cap" x="480" y="111">String · 글 요약 JSON</text>
+<text class="t-tok" data-post x="636" y="98"></text><text class="t-mute" data-postttl x="970" y="98" text-anchor="end"></text>
+<line class="tl-base" x1="480" x2="970" y1="118" y2="118"/>
+<g opacity=".45"><text class="t-code" x="480" y="138">lock:region:42</text><text class="t-cap" x="480" y="151">String · 다시 만드는 사람 표시</text>
+<text class="t-tok" data-lock x="636" y="138"></text><text class="t-mute" data-lockpx x="970" y="138" text-anchor="end"></text></g>
+<rect class="box" data-box="log" x="10" y="200" width="325" height="115" rx="8"/>
+<text class="t-title" x="20" y="218">이번 단계에 오간 요청</text><g data-log></g>
+<rect class="box" data-box="mq" x="345" y="200" width="110" height="115" rx="8"/>
+<text class="t-title" x="355" y="218">RabbitMQ</text><text class="t-cap" x="355" y="232">cache.post-events</text><text class="t-tok" data-mq x="355" y="270"></text>
+<rect class="box" data-box="db" x="490" y="200" width="490" height="115" rx="8"/>
+<text class="t-title" x="500" y="218">PostgreSQL</text><text class="t-mute" x="500" y="237">커넥션 풀</text><rect class="slot2" data-slot="0" x="570" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="1" x="589" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="2" x="608" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="3" x="627" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="4" x="646" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="5" x="665" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="6" x="684" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="7" x="703" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="8" x="722" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="9" x="741" y="226" width="15" height="14" rx="2"/><text class="t-tok" data-pool x="770" y="237"></text>
+<text class="t-big" data-q x="500" y="280"></text><text class="t-mute" x="500" y="298">글 7 읽기 (누적)</text><text class="t-tok" data-dbnote x="640" y="280"></text>
+<rect class="box" data-box="cmd" x="10" y="325" width="970" height="72" rx="8"/>
+<text class="t-title" x="20" y="342">Valkey 명령</text><text class="t-cap" x="970" y="342" text-anchor="end">이번 단계에 쓴 명령은 파랗게</text>
+<g class="sq" data-sq="0"><text class="t-mute" x="20" y="359">읽기</text><text class="t-code" x="128" y="359">MGET post:7   → 없으면 DB 에서 읽어 SET post:7 {…} EX 3</text></g><g class="sq" data-sq="1"><text class="t-mute" x="20" y="374">제목 수정</text><text class="t-code" x="128" y="374">DEL post:7   (한 번만)</text></g><g class="sq" data-sq="2"><text class="t-mute" x="20" y="389">안전망</text><text class="t-code" x="128" y="389">TTL 3초 (실험용. 운영은 10분 + 지터 0~2분)</text></g>
+<rect class="box" x="10" y="405" width="970" height="115" rx="8"/>
+<text class="t-title" x="20" y="422">시간축</text><text class="t-tok k-run" data-now-t x="70" y="422"></text><text class="t-cap" x="960" y="422" text-anchor="end">굵은 막대 = 기다림 · 바쁨,  얇은 줄 = TTL,  색 띠 = 화면에 보인 값,  세로 눈금 = 지움 · 만료 · 받음</text>
+<text class="t-mute" x="20" y="451">캐시 리스너</text><line class="tl-base" x1="120" x2="960" y1="447" y2="447"/><text class="t-mute" x="20" y="474">post:7 TTL</text><line class="tl-base" x1="120" x2="960" y1="470" y2="470"/><text class="t-mute" x="20" y="497">화면 제목</text><line class="tl-base" x1="120" x2="960" y1="493" y2="493"/><line class="tl-base" x1="120" x2="120" y1="502" y2="506"/><text class="t-cap" x="120" y="514" text-anchor="middle">0ms</text><line class="tl-base" x1="360" x2="360" y1="502" y2="506"/><text class="t-cap" x="360" y="514" text-anchor="middle">1,000ms</text><line class="tl-base" x1="600" x2="600" y1="502" y2="506"/><text class="t-cap" x="600" y="514" text-anchor="middle">2,000ms</text><line class="tl-base" x1="840" x2="840" y1="502" y2="506"/><text class="t-cap" x="840" y="514" text-anchor="middle">3,000ms</text><g data-segs></g><line class="tl-cur" data-cursor y1="432" y2="503"/>
+<path class="flow" data-flow="app:l1" d="M140 55 H178" marker-end="url(#ah-idle-race-before)"/><path class="flow" data-flow="app:l2" d="M140 95 H178" marker-end="url(#ah-idle-race-before)"/><path class="flow" data-flow="l1:vk" d="M400 55 H468" marker-end="url(#ah-idle-race-before)"/><path class="flow" data-flow="l2:vk" d="M400 95 H468" marker-end="url(#ah-idle-race-before)"/><path class="flow" data-flow="l3:vk" d="M400 135 H468" marker-end="url(#ah-idle-race-before)"/><path class="flow" data-flow="l1:db" d="M215 165 V176 H560 V198" marker-end="url(#ah-idle-race-before)"/><path class="flow" data-flow="l2:db" d="M255 165 V186 H640 V198" marker-end="url(#ah-idle-race-before)"/><path class="flow" data-flow="db:mq" d="M488 245 H457" marker-end="url(#ah-idle-race-before)"/><path class="flow" data-flow="mq:l3" d="M385 198 V167" marker-end="url(#ah-idle-race-before)"/>
+<g class="fl" data-fl="app:l1" data-cx="159" data-cy="55" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="159" y="58.5"></text></g><g class="fl" data-fl="app:l2" data-cx="159" data-cy="95" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="159" y="98.5"></text></g><g class="fl" data-fl="l1:vk" data-cx="434" data-cy="55" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="434" y="58.5"></text></g><g class="fl" data-fl="l2:vk" data-cx="434" data-cy="95" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="434" y="98.5"></text></g><g class="fl" data-fl="l3:vk" data-cx="434" data-cy="135" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="434" y="138.5"></text></g><g class="fl" data-fl="l1:db" data-cx="290" data-cy="176" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="290" y="179.5"></text></g><g class="fl" data-fl="l2:db" data-cx="545" data-cy="186" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="545" y="189.5"></text></g><g class="fl" data-fl="db:mq" data-cx="472" data-cy="245" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="472" y="248.5"></text></g><g class="fl" data-fl="mq:l3" data-cx="385" data-cy="182" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="385" y="185.5"></text></g>
+</svg></div>
+<p class="now" data-now></p>
+<ol class="steps" data-steps></ol>
+<div class="stats"><div class="stat"><small>옛 제목이 보인 시간</small><b data-stat="0">–</b></div><div class="stat"><small>옛 값을 지운 것</small><b data-stat="1">–</b></div></div>
+</section>
+<section class="card" data-card="race-after" data-scn="race" hidden>
+<div class="head"><b>마 · 지연 이중 삭제 (1초 뒤 한 번 더)</b></div>
+<div class="cls">DEL post:7 하고 1초 뒤 한 번 더 DEL. 그 사이에 들어온 옛 값을 지운다</div>
+<div class="scroll"><svg viewBox="0 0 990 525" role="img" aria-label="이웃 앱, API 서버, Valkey, PostgreSQL, RabbitMQ 사이에 오가는 요청과 시간축">
+<defs><marker id="ah-idle-race-after" viewBox="0 0 8 8" refX="7" refY="4" markerUnits="userSpaceOnUse" markerWidth="7" markerHeight="7" orient="auto"><path class="ah-idle" d="M0 0L8 4L0 8z"/></marker><marker id="ah-run-race-after" viewBox="0 0 8 8" refX="7" refY="4" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto"><path class="ah-run" d="M0 0L8 4L0 8z"/></marker><marker id="ah-bad-race-after" viewBox="0 0 8 8" refX="7" refY="4" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto"><path class="ah-bad" d="M0 0L8 4L0 8z"/></marker></defs>
+<rect class="box" data-box="app" x="10" y="30" width="130" height="130" rx="8"/>
+<text class="t-title" x="20" y="50">이웃 앱</text><text class="t-mute" x="20" y="65">목록 · 글쓰기</text>
+<text class="t-tok" data-app1 x="20" y="112"></text><text class="t-tok" data-app2 x="20" y="128"></text>
+<rect class="box" data-box="api" x="170" y="10" width="240" height="155" rx="8"/>
+<text class="t-title" x="180" y="27">API 서버 (Spring 앱)</text>
+<rect class="lane" data-lane="l1" x="180" y="38" width="220" height="34" rx="6"/><text class="t-mute" x="188" y="52">요청 R</text><text class="t-tok" data-worker="l1" x="188" y="66"></text><rect class="lane" data-lane="l2" x="180" y="78" width="220" height="34" rx="6"/><text class="t-mute" x="188" y="92">글 API</text><text class="t-tok" data-worker="l2" x="188" y="106"></text><rect class="lane" data-lane="l3" x="180" y="118" width="220" height="34" rx="6"/><text class="t-mute" x="188" y="132">캐시 리스너</text><text class="t-tok" data-worker="l3" x="188" y="146"></text>
+<rect class="box" data-box="vk" x="470" y="10" width="510" height="155" rx="8"/>
+<text class="t-title" x="480" y="27">Valkey</text><text class="t-cap" x="970" y="27" text-anchor="end">키 · 값 · 만료</text>
+<g opacity=".45"><text class="t-code" x="480" y="58">region:42:latest</text><text class="t-cap" x="480" y="71">Sorted Set · 글 ID 만 (최신 순)</text>
+<rect class="cell" data-cell="0" x="636" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="0" x="650" y="58.5" text-anchor="middle"></text><rect class="cell" data-cell="1" x="668" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="1" x="682" y="58.5" text-anchor="middle"></text><rect class="cell" data-cell="2" x="700" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="2" x="714" y="58.5" text-anchor="middle"></text><rect class="cell" data-cell="3" x="732" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="3" x="746" y="58.5" text-anchor="middle"></text><rect class="cell" data-cell="4" x="764" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="4" x="778" y="58.5" text-anchor="middle"></text><rect class="cell" data-cell="5" x="796" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="5" x="810" y="58.5" text-anchor="middle"></text><text class="t-tok" data-feednone x="636" y="58"></text><text class="t-mute" data-feednote x="970" y="58" text-anchor="end"></text></g>
+<line class="tl-base" x1="480" x2="970" y1="78" y2="78"/>
+<text class="t-code" x="480" y="98">post:7</text><text class="t-cap" x="480" y="111">String · 글 요약 JSON</text>
+<text class="t-tok" data-post x="636" y="98"></text><text class="t-mute" data-postttl x="970" y="98" text-anchor="end"></text>
+<line class="tl-base" x1="480" x2="970" y1="118" y2="118"/>
+<g opacity=".45"><text class="t-code" x="480" y="138">lock:region:42</text><text class="t-cap" x="480" y="151">String · 다시 만드는 사람 표시</text>
+<text class="t-tok" data-lock x="636" y="138"></text><text class="t-mute" data-lockpx x="970" y="138" text-anchor="end"></text></g>
+<rect class="box" data-box="log" x="10" y="200" width="325" height="115" rx="8"/>
+<text class="t-title" x="20" y="218">이번 단계에 오간 요청</text><g data-log></g>
+<rect class="box" data-box="mq" x="345" y="200" width="110" height="115" rx="8"/>
+<text class="t-title" x="355" y="218">RabbitMQ</text><text class="t-cap" x="355" y="232">cache.post-events</text><text class="t-tok" data-mq x="355" y="270"></text>
+<rect class="box" data-box="db" x="490" y="200" width="490" height="115" rx="8"/>
+<text class="t-title" x="500" y="218">PostgreSQL</text><text class="t-mute" x="500" y="237">커넥션 풀</text><rect class="slot2" data-slot="0" x="570" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="1" x="589" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="2" x="608" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="3" x="627" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="4" x="646" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="5" x="665" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="6" x="684" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="7" x="703" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="8" x="722" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="9" x="741" y="226" width="15" height="14" rx="2"/><text class="t-tok" data-pool x="770" y="237"></text>
+<text class="t-big" data-q x="500" y="280"></text><text class="t-mute" x="500" y="298">글 7 읽기 (누적)</text><text class="t-tok" data-dbnote x="640" y="280"></text>
+<rect class="box" data-box="cmd" x="10" y="325" width="970" height="72" rx="8"/>
+<text class="t-title" x="20" y="342">Valkey 명령</text><text class="t-cap" x="970" y="342" text-anchor="end">이번 단계에 쓴 명령은 파랗게</text>
+<g class="sq" data-sq="0"><text class="t-mute" x="20" y="359">읽기</text><text class="t-code" x="128" y="359">MGET post:7   → 없으면 DB 에서 읽어 SET post:7 {…} EX 3</text></g><g class="sq" data-sq="1"><text class="t-mute" x="20" y="374">제목 수정</text><text class="t-code" x="128" y="374">DEL post:7,  1초 뒤 DEL post:7 한 번 더 (지연 이중 삭제)</text></g><g class="sq" data-sq="2"><text class="t-mute" x="20" y="389">안전망</text><text class="t-code" x="128" y="389">TTL 3초 (실험용. 운영은 10분 + 지터 0~2분)</text></g>
+<rect class="box" x="10" y="405" width="970" height="115" rx="8"/>
+<text class="t-title" x="20" y="422">시간축</text><text class="t-tok k-run" data-now-t x="70" y="422"></text><text class="t-cap" x="960" y="422" text-anchor="end">굵은 막대 = 기다림 · 바쁨,  얇은 줄 = TTL,  색 띠 = 화면에 보인 값,  세로 눈금 = 지움 · 만료 · 받음</text>
+<text class="t-mute" x="20" y="451">캐시 리스너</text><line class="tl-base" x1="120" x2="960" y1="447" y2="447"/><text class="t-mute" x="20" y="474">post:7 TTL</text><line class="tl-base" x1="120" x2="960" y1="470" y2="470"/><text class="t-mute" x="20" y="497">화면 제목</text><line class="tl-base" x1="120" x2="960" y1="493" y2="493"/><line class="tl-base" x1="120" x2="120" y1="502" y2="506"/><text class="t-cap" x="120" y="514" text-anchor="middle">0ms</text><line class="tl-base" x1="360" x2="360" y1="502" y2="506"/><text class="t-cap" x="360" y="514" text-anchor="middle">1,000ms</text><line class="tl-base" x1="600" x2="600" y1="502" y2="506"/><text class="t-cap" x="600" y="514" text-anchor="middle">2,000ms</text><line class="tl-base" x1="840" x2="840" y1="502" y2="506"/><text class="t-cap" x="840" y="514" text-anchor="middle">3,000ms</text><g data-segs></g><line class="tl-cur" data-cursor y1="432" y2="503"/>
+<path class="flow" data-flow="app:l1" d="M140 55 H178" marker-end="url(#ah-idle-race-after)"/><path class="flow" data-flow="app:l2" d="M140 95 H178" marker-end="url(#ah-idle-race-after)"/><path class="flow" data-flow="l1:vk" d="M400 55 H468" marker-end="url(#ah-idle-race-after)"/><path class="flow" data-flow="l2:vk" d="M400 95 H468" marker-end="url(#ah-idle-race-after)"/><path class="flow" data-flow="l3:vk" d="M400 135 H468" marker-end="url(#ah-idle-race-after)"/><path class="flow" data-flow="l1:db" d="M215 165 V176 H560 V198" marker-end="url(#ah-idle-race-after)"/><path class="flow" data-flow="l2:db" d="M255 165 V186 H640 V198" marker-end="url(#ah-idle-race-after)"/><path class="flow" data-flow="db:mq" d="M488 245 H457" marker-end="url(#ah-idle-race-after)"/><path class="flow" data-flow="mq:l3" d="M385 198 V167" marker-end="url(#ah-idle-race-after)"/>
+<g class="fl" data-fl="app:l1" data-cx="159" data-cy="55" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="159" y="58.5"></text></g><g class="fl" data-fl="app:l2" data-cx="159" data-cy="95" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="159" y="98.5"></text></g><g class="fl" data-fl="l1:vk" data-cx="434" data-cy="55" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="434" y="58.5"></text></g><g class="fl" data-fl="l2:vk" data-cx="434" data-cy="95" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="434" y="98.5"></text></g><g class="fl" data-fl="l3:vk" data-cx="434" data-cy="135" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="434" y="138.5"></text></g><g class="fl" data-fl="l1:db" data-cx="290" data-cy="176" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="290" y="179.5"></text></g><g class="fl" data-fl="l2:db" data-cx="545" data-cy="186" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="545" y="189.5"></text></g><g class="fl" data-fl="db:mq" data-cx="472" data-cy="245" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="472" y="248.5"></text></g><g class="fl" data-fl="mq:l3" data-cx="385" data-cy="182" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="385" y="185.5"></text></g>
+</svg></div>
+<p class="now" data-now></p>
+<ol class="steps" data-steps></ol>
+<div class="stats"><div class="stat"><small>옛 제목이 보인 시간</small><b data-stat="0">–</b></div><div class="stat"><small>옛 값을 지운 것</small><b data-stat="1">–</b></div></div>
+</section>
+<section class="card" data-card="ttl-before" data-scn="ttl" hidden>
+<div class="head"><b>가 · EX 600 (모두 같은 10분)</b></div>
+<div class="cls">SET post:{id} {…} EX 600</div>
+<div class="scroll"><svg viewBox="0 0 990 525" role="img" aria-label="이웃 앱, API 서버, Valkey, PostgreSQL, RabbitMQ 사이에 오가는 요청과 시간축">
+<defs><marker id="ah-idle-ttl-before" viewBox="0 0 8 8" refX="7" refY="4" markerUnits="userSpaceOnUse" markerWidth="7" markerHeight="7" orient="auto"><path class="ah-idle" d="M0 0L8 4L0 8z"/></marker><marker id="ah-run-ttl-before" viewBox="0 0 8 8" refX="7" refY="4" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto"><path class="ah-run" d="M0 0L8 4L0 8z"/></marker><marker id="ah-bad-ttl-before" viewBox="0 0 8 8" refX="7" refY="4" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto"><path class="ah-bad" d="M0 0L8 4L0 8z"/></marker></defs>
+<rect class="box" data-box="app" x="10" y="30" width="130" height="130" rx="8"/>
+<text class="t-title" x="20" y="50">이웃 앱</text><text class="t-mute" x="20" y="65">목록 · 글쓰기</text>
+<text class="t-tok" data-app1 x="20" y="112"></text><text class="t-tok" data-app2 x="20" y="128"></text>
+<rect class="box" data-box="api" x="170" y="10" width="240" height="155" rx="8"/>
+<text class="t-title" x="180" y="27">API 서버 (Spring 앱)</text>
+<rect class="lane" data-lane="l1" x="180" y="38" width="220" height="34" rx="6"/><text class="t-mute" x="188" y="52">읽는 요청들</text><text class="t-tok" data-worker="l1" x="188" y="66"></text><rect class="lane" data-lane="l2" x="180" y="78" width="220" height="34" rx="6"/><text class="t-mute" x="188" y="92">—</text><text class="t-tok" data-worker="l2" x="188" y="106"></text><rect class="lane" data-lane="l3" x="180" y="118" width="220" height="34" rx="6"/><text class="t-mute" x="188" y="132">—</text><text class="t-tok" data-worker="l3" x="188" y="146"></text>
+<rect class="box" data-box="vk" x="470" y="10" width="510" height="155" rx="8"/>
+<text class="t-title" x="480" y="27">Valkey</text><text class="t-cap" x="970" y="27" text-anchor="end">키 · 값 · 만료</text>
+<g opacity=".45"><text class="t-code" x="480" y="58">region:42:latest</text><text class="t-cap" x="480" y="71">Sorted Set · 글 ID 만 (최신 순)</text>
+<rect class="cell" data-cell="0" x="636" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="0" x="650" y="58.5" text-anchor="middle"></text><rect class="cell" data-cell="1" x="668" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="1" x="682" y="58.5" text-anchor="middle"></text><rect class="cell" data-cell="2" x="700" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="2" x="714" y="58.5" text-anchor="middle"></text><rect class="cell" data-cell="3" x="732" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="3" x="746" y="58.5" text-anchor="middle"></text><rect class="cell" data-cell="4" x="764" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="4" x="778" y="58.5" text-anchor="middle"></text><rect class="cell" data-cell="5" x="796" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="5" x="810" y="58.5" text-anchor="middle"></text><text class="t-tok" data-feednone x="636" y="58"></text><text class="t-mute" data-feednote x="970" y="58" text-anchor="end"></text></g>
+<line class="tl-base" x1="480" x2="970" y1="78" y2="78"/>
+<text class="t-code" x="480" y="98">post:{id}</text><text class="t-cap" x="480" y="111">String · 글 요약 JSON</text>
+<text class="t-tok" data-post x="636" y="98"></text><text class="t-mute" data-postttl x="970" y="98" text-anchor="end"></text>
+<line class="tl-base" x1="480" x2="970" y1="118" y2="118"/>
+<g opacity=".45"><text class="t-code" x="480" y="138">lock:region:42</text><text class="t-cap" x="480" y="151">String · 다시 만드는 사람 표시</text>
+<text class="t-tok" data-lock x="636" y="138"></text><text class="t-mute" data-lockpx x="970" y="138" text-anchor="end"></text></g>
+<rect class="box" data-box="log" x="10" y="200" width="325" height="115" rx="8"/>
+<text class="t-title" x="20" y="218">이번 단계에 오간 요청</text><g data-log></g>
+<rect class="box" data-box="mq" x="345" y="200" width="110" height="115" rx="8"/>
+<text class="t-title" x="355" y="218">RabbitMQ</text><text class="t-cap" x="355" y="232">cache.post-events</text><text class="t-tok" data-mq x="355" y="270"></text>
+<rect class="box" data-box="db" x="490" y="200" width="490" height="115" rx="8"/>
+<text class="t-title" x="500" y="218">PostgreSQL</text><text class="t-mute" x="500" y="237">커넥션 풀</text><rect class="slot2" data-slot="0" x="570" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="1" x="589" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="2" x="608" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="3" x="627" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="4" x="646" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="5" x="665" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="6" x="684" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="7" x="703" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="8" x="722" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="9" x="741" y="226" width="15" height="14" rx="2"/><text class="t-tok" data-pool x="770" y="237"></text>
+<text class="t-big" data-q x="500" y="280"></text><text class="t-mute" x="500" y="298">글 요약 DB 읽기 (누적)</text><text class="t-tok" data-dbnote x="640" y="280"></text>
+<rect class="box" data-box="cmd" x="10" y="325" width="970" height="72" rx="8"/>
+<text class="t-title" x="20" y="342">Valkey 명령</text><text class="t-cap" x="970" y="342" text-anchor="end">이번 단계에 쓴 명령은 파랗게</text>
+<g class="sq" data-sq="0"><text class="t-mute" x="20" y="359">채우기</text><text class="t-code" x="128" y="359">SET post:{id} {…} EX 600</text></g><g class="sq" data-sq="1"><text class="t-mute" x="20" y="374">만료</text><text class="t-code" x="128" y="374">7:00:00~7:00:03 에 채운 키 → 7:10:00~7:10:03 에 만료</text></g><g class="sq" data-sq="2"><text class="t-mute" x="20" y="389"></text><text class="t-code" x="128" y="389"></text></g>
+<rect class="box" x="10" y="405" width="970" height="115" rx="8"/>
+<text class="t-title" x="20" y="422">시간축</text><text class="t-tok k-run" data-now-t x="70" y="422"></text><text class="t-cap" x="960" y="422" text-anchor="end">굵은 막대 = 기다림 · 바쁨,  얇은 줄 = TTL,  색 띠 = 화면에 보인 값,  세로 눈금 = 지움 · 만료 · 받음</text>
+<text class="t-mute" x="20" y="451">채움 (SET)</text><line class="tl-base" x1="120" x2="960" y1="447" y2="447"/><text class="t-mute" x="20" y="474">만료 → DB</text><line class="tl-base" x1="120" x2="960" y1="470" y2="470"/><line class="tl-base" x1="120" x2="120" y1="479" y2="483"/><text class="t-cap" x="120" y="514" text-anchor="middle">7:00</text><line class="tl-base" x1="249.23076923076923" x2="249.23076923076923" y1="479" y2="483"/><text class="t-cap" x="249.23076923076923" y="514" text-anchor="middle">7:02</text><line class="tl-base" x1="378.46153846153845" x2="378.46153846153845" y1="479" y2="483"/><text class="t-cap" x="378.46153846153845" y="514" text-anchor="middle">7:04</text><line class="tl-base" x1="507.69230769230774" x2="507.69230769230774" y1="479" y2="483"/><text class="t-cap" x="507.69230769230774" y="514" text-anchor="middle">7:06</text><line class="tl-base" x1="636.9230769230769" x2="636.9230769230769" y1="479" y2="483"/><text class="t-cap" x="636.9230769230769" y="514" text-anchor="middle">7:08</text><line class="tl-base" x1="766.1538461538462" x2="766.1538461538462" y1="479" y2="483"/><text class="t-cap" x="766.1538461538462" y="514" text-anchor="middle">7:10</text><line class="tl-base" x1="895.3846153846155" x2="895.3846153846155" y1="479" y2="483"/><text class="t-cap" x="895.3846153846155" y="514" text-anchor="middle">7:12</text><g data-segs></g><line class="tl-cur" data-cursor y1="432" y2="503"/>
+<path class="flow" data-flow="app:l1" d="M140 55 H178" marker-end="url(#ah-idle-ttl-before)"/><path class="flow" data-flow="app:l2" d="M140 95 H178" marker-end="url(#ah-idle-ttl-before)"/><path class="flow" data-flow="l1:vk" d="M400 55 H468" marker-end="url(#ah-idle-ttl-before)"/><path class="flow" data-flow="l2:vk" d="M400 95 H468" marker-end="url(#ah-idle-ttl-before)"/><path class="flow" data-flow="l3:vk" d="M400 135 H468" marker-end="url(#ah-idle-ttl-before)"/><path class="flow" data-flow="l1:db" d="M215 165 V176 H560 V198" marker-end="url(#ah-idle-ttl-before)"/><path class="flow" data-flow="l2:db" d="M255 165 V186 H640 V198" marker-end="url(#ah-idle-ttl-before)"/><path class="flow" data-flow="db:mq" d="M488 245 H457" marker-end="url(#ah-idle-ttl-before)"/><path class="flow" data-flow="mq:l3" d="M385 198 V167" marker-end="url(#ah-idle-ttl-before)"/>
+<g class="fl" data-fl="app:l1" data-cx="159" data-cy="55" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="159" y="58.5"></text></g><g class="fl" data-fl="app:l2" data-cx="159" data-cy="95" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="159" y="98.5"></text></g><g class="fl" data-fl="l1:vk" data-cx="434" data-cy="55" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="434" y="58.5"></text></g><g class="fl" data-fl="l2:vk" data-cx="434" data-cy="95" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="434" y="98.5"></text></g><g class="fl" data-fl="l3:vk" data-cx="434" data-cy="135" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="434" y="138.5"></text></g><g class="fl" data-fl="l1:db" data-cx="290" data-cy="176" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="290" y="179.5"></text></g><g class="fl" data-fl="l2:db" data-cx="545" data-cy="186" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="545" y="189.5"></text></g><g class="fl" data-fl="db:mq" data-cx="472" data-cy="245" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="472" y="248.5"></text></g><g class="fl" data-fl="mq:l3" data-cx="385" data-cy="182" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="385" y="185.5"></text></g>
+</svg></div>
+<p class="now" data-now></p>
+<ol class="steps" data-steps></ol>
+<div class="stats"><div class="stat"><small>만료가 몰린 시간</small><b data-stat="0">–</b></div><div class="stat"><small>그동안 초당 DB 읽기</small><b data-stat="1">–</b></div></div>
+</section>
+<section class="card" data-card="ttl-after" data-scn="ttl" hidden>
+<div class="head"><b>나 · EX 600 + 지터 0~120초</b></div>
+<div class="cls">SET post:{id} {…} EX (600 + 무작위 0~120)</div>
+<div class="scroll"><svg viewBox="0 0 990 525" role="img" aria-label="이웃 앱, API 서버, Valkey, PostgreSQL, RabbitMQ 사이에 오가는 요청과 시간축">
+<defs><marker id="ah-idle-ttl-after" viewBox="0 0 8 8" refX="7" refY="4" markerUnits="userSpaceOnUse" markerWidth="7" markerHeight="7" orient="auto"><path class="ah-idle" d="M0 0L8 4L0 8z"/></marker><marker id="ah-run-ttl-after" viewBox="0 0 8 8" refX="7" refY="4" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto"><path class="ah-run" d="M0 0L8 4L0 8z"/></marker><marker id="ah-bad-ttl-after" viewBox="0 0 8 8" refX="7" refY="4" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto"><path class="ah-bad" d="M0 0L8 4L0 8z"/></marker></defs>
+<rect class="box" data-box="app" x="10" y="30" width="130" height="130" rx="8"/>
+<text class="t-title" x="20" y="50">이웃 앱</text><text class="t-mute" x="20" y="65">목록 · 글쓰기</text>
+<text class="t-tok" data-app1 x="20" y="112"></text><text class="t-tok" data-app2 x="20" y="128"></text>
+<rect class="box" data-box="api" x="170" y="10" width="240" height="155" rx="8"/>
+<text class="t-title" x="180" y="27">API 서버 (Spring 앱)</text>
+<rect class="lane" data-lane="l1" x="180" y="38" width="220" height="34" rx="6"/><text class="t-mute" x="188" y="52">읽는 요청들</text><text class="t-tok" data-worker="l1" x="188" y="66"></text><rect class="lane" data-lane="l2" x="180" y="78" width="220" height="34" rx="6"/><text class="t-mute" x="188" y="92">—</text><text class="t-tok" data-worker="l2" x="188" y="106"></text><rect class="lane" data-lane="l3" x="180" y="118" width="220" height="34" rx="6"/><text class="t-mute" x="188" y="132">—</text><text class="t-tok" data-worker="l3" x="188" y="146"></text>
+<rect class="box" data-box="vk" x="470" y="10" width="510" height="155" rx="8"/>
+<text class="t-title" x="480" y="27">Valkey</text><text class="t-cap" x="970" y="27" text-anchor="end">키 · 값 · 만료</text>
+<g opacity=".45"><text class="t-code" x="480" y="58">region:42:latest</text><text class="t-cap" x="480" y="71">Sorted Set · 글 ID 만 (최신 순)</text>
+<rect class="cell" data-cell="0" x="636" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="0" x="650" y="58.5" text-anchor="middle"></text><rect class="cell" data-cell="1" x="668" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="1" x="682" y="58.5" text-anchor="middle"></text><rect class="cell" data-cell="2" x="700" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="2" x="714" y="58.5" text-anchor="middle"></text><rect class="cell" data-cell="3" x="732" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="3" x="746" y="58.5" text-anchor="middle"></text><rect class="cell" data-cell="4" x="764" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="4" x="778" y="58.5" text-anchor="middle"></text><rect class="cell" data-cell="5" x="796" y="45" width="28" height="19" rx="3"/><text class="t-cap inv" data-cellt="5" x="810" y="58.5" text-anchor="middle"></text><text class="t-tok" data-feednone x="636" y="58"></text><text class="t-mute" data-feednote x="970" y="58" text-anchor="end"></text></g>
+<line class="tl-base" x1="480" x2="970" y1="78" y2="78"/>
+<text class="t-code" x="480" y="98">post:{id}</text><text class="t-cap" x="480" y="111">String · 글 요약 JSON</text>
+<text class="t-tok" data-post x="636" y="98"></text><text class="t-mute" data-postttl x="970" y="98" text-anchor="end"></text>
+<line class="tl-base" x1="480" x2="970" y1="118" y2="118"/>
+<g opacity=".45"><text class="t-code" x="480" y="138">lock:region:42</text><text class="t-cap" x="480" y="151">String · 다시 만드는 사람 표시</text>
+<text class="t-tok" data-lock x="636" y="138"></text><text class="t-mute" data-lockpx x="970" y="138" text-anchor="end"></text></g>
+<rect class="box" data-box="log" x="10" y="200" width="325" height="115" rx="8"/>
+<text class="t-title" x="20" y="218">이번 단계에 오간 요청</text><g data-log></g>
+<rect class="box" data-box="mq" x="345" y="200" width="110" height="115" rx="8"/>
+<text class="t-title" x="355" y="218">RabbitMQ</text><text class="t-cap" x="355" y="232">cache.post-events</text><text class="t-tok" data-mq x="355" y="270"></text>
+<rect class="box" data-box="db" x="490" y="200" width="490" height="115" rx="8"/>
+<text class="t-title" x="500" y="218">PostgreSQL</text><text class="t-mute" x="500" y="237">커넥션 풀</text><rect class="slot2" data-slot="0" x="570" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="1" x="589" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="2" x="608" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="3" x="627" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="4" x="646" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="5" x="665" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="6" x="684" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="7" x="703" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="8" x="722" y="226" width="15" height="14" rx="2"/><rect class="slot2" data-slot="9" x="741" y="226" width="15" height="14" rx="2"/><text class="t-tok" data-pool x="770" y="237"></text>
+<text class="t-big" data-q x="500" y="280"></text><text class="t-mute" x="500" y="298">글 요약 DB 읽기 (누적)</text><text class="t-tok" data-dbnote x="640" y="280"></text>
+<rect class="box" data-box="cmd" x="10" y="325" width="970" height="72" rx="8"/>
+<text class="t-title" x="20" y="342">Valkey 명령</text><text class="t-cap" x="970" y="342" text-anchor="end">이번 단계에 쓴 명령은 파랗게</text>
+<g class="sq" data-sq="0"><text class="t-mute" x="20" y="359">채우기</text><text class="t-code" x="128" y="359">SET post:{id} {…} EX (600 + 무작위 0~120)</text></g><g class="sq" data-sq="1"><text class="t-mute" x="20" y="374">만료</text><text class="t-code" x="128" y="374">7:10:00~7:12:03 에 고르게 흩어져 만료</text></g><g class="sq" data-sq="2"><text class="t-mute" x="20" y="389"></text><text class="t-code" x="128" y="389"></text></g>
+<rect class="box" x="10" y="405" width="970" height="115" rx="8"/>
+<text class="t-title" x="20" y="422">시간축</text><text class="t-tok k-run" data-now-t x="70" y="422"></text><text class="t-cap" x="960" y="422" text-anchor="end">굵은 막대 = 기다림 · 바쁨,  얇은 줄 = TTL,  색 띠 = 화면에 보인 값,  세로 눈금 = 지움 · 만료 · 받음</text>
+<text class="t-mute" x="20" y="451">채움 (SET)</text><line class="tl-base" x1="120" x2="960" y1="447" y2="447"/><text class="t-mute" x="20" y="474">만료 → DB</text><line class="tl-base" x1="120" x2="960" y1="470" y2="470"/><line class="tl-base" x1="120" x2="120" y1="479" y2="483"/><text class="t-cap" x="120" y="514" text-anchor="middle">7:00</text><line class="tl-base" x1="249.23076923076923" x2="249.23076923076923" y1="479" y2="483"/><text class="t-cap" x="249.23076923076923" y="514" text-anchor="middle">7:02</text><line class="tl-base" x1="378.46153846153845" x2="378.46153846153845" y1="479" y2="483"/><text class="t-cap" x="378.46153846153845" y="514" text-anchor="middle">7:04</text><line class="tl-base" x1="507.69230769230774" x2="507.69230769230774" y1="479" y2="483"/><text class="t-cap" x="507.69230769230774" y="514" text-anchor="middle">7:06</text><line class="tl-base" x1="636.9230769230769" x2="636.9230769230769" y1="479" y2="483"/><text class="t-cap" x="636.9230769230769" y="514" text-anchor="middle">7:08</text><line class="tl-base" x1="766.1538461538462" x2="766.1538461538462" y1="479" y2="483"/><text class="t-cap" x="766.1538461538462" y="514" text-anchor="middle">7:10</text><line class="tl-base" x1="895.3846153846155" x2="895.3846153846155" y1="479" y2="483"/><text class="t-cap" x="895.3846153846155" y="514" text-anchor="middle">7:12</text><g data-segs></g><line class="tl-cur" data-cursor y1="432" y2="503"/>
+<path class="flow" data-flow="app:l1" d="M140 55 H178" marker-end="url(#ah-idle-ttl-after)"/><path class="flow" data-flow="app:l2" d="M140 95 H178" marker-end="url(#ah-idle-ttl-after)"/><path class="flow" data-flow="l1:vk" d="M400 55 H468" marker-end="url(#ah-idle-ttl-after)"/><path class="flow" data-flow="l2:vk" d="M400 95 H468" marker-end="url(#ah-idle-ttl-after)"/><path class="flow" data-flow="l3:vk" d="M400 135 H468" marker-end="url(#ah-idle-ttl-after)"/><path class="flow" data-flow="l1:db" d="M215 165 V176 H560 V198" marker-end="url(#ah-idle-ttl-after)"/><path class="flow" data-flow="l2:db" d="M255 165 V186 H640 V198" marker-end="url(#ah-idle-ttl-after)"/><path class="flow" data-flow="db:mq" d="M488 245 H457" marker-end="url(#ah-idle-ttl-after)"/><path class="flow" data-flow="mq:l3" d="M385 198 V167" marker-end="url(#ah-idle-ttl-after)"/>
+<g class="fl" data-fl="app:l1" data-cx="159" data-cy="55" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="159" y="58.5"></text></g><g class="fl" data-fl="app:l2" data-cx="159" data-cy="95" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="159" y="98.5"></text></g><g class="fl" data-fl="l1:vk" data-cx="434" data-cy="55" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="434" y="58.5"></text></g><g class="fl" data-fl="l2:vk" data-cx="434" data-cy="95" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="434" y="98.5"></text></g><g class="fl" data-fl="l3:vk" data-cx="434" data-cy="135" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="434" y="138.5"></text></g><g class="fl" data-fl="l1:db" data-cx="290" data-cy="176" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="290" y="179.5"></text></g><g class="fl" data-fl="l2:db" data-cx="545" data-cy="186" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="545" y="189.5"></text></g><g class="fl" data-fl="db:mq" data-cx="472" data-cy="245" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="472" y="248.5"></text></g><g class="fl" data-fl="mq:l3" data-cx="385" data-cy="182" visibility="hidden"><rect rx="6" height="14"/><text text-anchor="middle" x="385" y="185.5"></text></g>
+</svg></div>
+<p class="now" data-now></p>
+<ol class="steps" data-steps></ol>
+<div class="stats"><div class="stat"><small>만료가 몰린 시간</small><b data-stat="0">–</b></div><div class="stat"><small>그동안 초당 DB 읽기</small><b data-stat="1">–</b></div></div>
+</section>
+</div>
+<ul class="legend">
+<li><i style="background:var(--runbg);border-color:var(--run);border-radius:2px"></i>파란 화살표 · 이번 단계에 오간 요청</li>
+<li><i style="background:var(--failbg);border-color:var(--fail);border-radius:2px"></i>빨간 화살표 · 같은 일을 여러 번, 옛 값을 넣음</li>
+<li><i style="background:var(--conn);border-color:var(--conn);border-radius:2px"></i>목록 칸 · 들어 있는 글 ID</li>
+<li><i style="background:var(--run);border-color:var(--run);border-radius:2px"></i>목록 칸 · 이번 단계에 새로 들어온 글</li>
+<li><i style="background:var(--hold);border-color:var(--hold);border-radius:2px"></i>커넥션 칸 · 쓰는 중</li>
+</ul>
+<p class="cap">앞의 세 장면은 실제 테스트(FeedCacheExperimentTest, PostgreSQL · RabbitMQ · Valkey Testcontainers) 결과이고, 그림의 단계 모델로 계산한 마지막 상태와 같습니다. 동시에 몰린 150명: 목록 키가 빈 순간 락 없이 cache-aside 로 읽으면 150명이 모두 DB 로 가서 커넥션 10개 앞에 줄을 서고(목록 쿼리 150번, 가장 늦은 응답 790ms), SET NX PX 락으로 한 명만 다시 만들게 하면 목록 쿼리는 1번입니다. 이벤트로 고치기: 새 글은 ZADD, 제목 수정은 DEL post:{id}, 블라인드는 ZREM 으로 고쳐서 목록을 DB 로 다시 만들 일이 없고, 같은 이벤트가 두 번 와도 Sorted Set 이라 한 번만 들어갑니다. 늦게 들어온 옛 값: DB 를 읽고 멈춘 요청이 삭제 뒤에 옛 제목을 넣으면, 한 번만 지우는 방식은 TTL 이 지울 때까지 옛 제목이 남고, 1초 뒤 한 번 더 지우면 1초 안에 사라집니다. TTL 동시 만료는 실험이 아니라 계산입니다. 스페이스로 재생/멈춤, ← →로 한 단계씩 옮깁니다.</p>
+<script>
+const D = {"stageSeconds":1.6,"nodes":{"app":"이웃 앱","vk":"Valkey","db":"PostgreSQL","mq":"RabbitMQ"},"flows":{"app:l1":["app","l1"],"app:l2":["app","l2"],"l1:vk":["l1","vk"],"l2:vk":["l2","vk"],"l3:vk":["l3","vk"],"l1:db":["l1","db"],"l2:db":["l2","db"],"db:mq":["db","mq"],"mq:l3":["mq","l3"]},"scn":{"stampede":{"lead":"저녁 7시, 한 동네 목록 키(region:42:latest)가 지워진 순간 150명이 동시에 목록을 엽니다. 목록 DB 쿼리는 50ms 가 걸리고, DB 커넥션 풀은 10개입니다. 글 요약(post:{id})은 모두 캐시에 있습니다."},"event":{"lead":"글 1~3 이 있는 동네에 글 4 가 올라오고, 글 2 의 제목이 고쳐지고, 글 3 이 신고로 가려집니다. 릴레이는 글 4 의 PostCreated 를 정상으로 한 번 보낸 뒤 같은 메시지를 두 번 더 보냅니다. 캐시는 글 쓰는 API 가 아니라 이벤트를 받은 캐시 리스너가 고칩니다."},"race":{"lead":"요청 R 이 DB 에서 옛 제목을 읽고 멈춘 사이 작성자가 제목을 고치고, 캐시 리스너가 post:7 을 지웁니다. 그 뒤에 깨어난 R 이 옛 제목을 캐시에 넣습니다. 시간축은 R 이 옛 제목을 넣은 때부터입니다. 실험이라 글 요약 TTL 은 3초로 줄였습니다."},"ttl":{"lead":"실험이 아니라 계산입니다. 7시 정각 배포 직후 3초 동안 인기 글 5만 개의 post:{id} 가 채워졌습니다. 모두 인기 글이라 만료되면 곧바로 다시 읽힌다고 봅니다."}},"cards":{"stampede-before":{"lanes":{"l1":"먼저 온 요청","l2":"나머지 149명","l3":"캐시 리스너"},"off":[],"axis":{"max":820,"ticks":[0,200,400,600,800]},"tl":["req","db"],"segs":[["req",0,790,"hold","커넥션을 기다림 · 가장 늦은 사람 790ms"],["db",2,790,"down","커넥션 10개 꽉 참 · 쿼리 150번"]],"result":[["목록 DB 쿼리","150번","bad"],["가장 늦은 응답","790ms","bad"],["받은 사람","150명",""]],"stages":[{"app":["150명이","동시에 목록을 엶","run"],"workers":{"l1":"목록 요청","l2":"목록 요청 149개","l3":"이 장면에선 안 씀"},"mq":"비어 있음","feed":null,"feedNote":"키 없음 · 방금 지워짐","post":["글 30개 요약 모두 있음","ok"],"postTtl":"TTL 3초 (실험값)","lock":["없음","none"],"lockPx":"","pool":0,"queue":0,"queries":"0","dbNote":"","fresh":[],"t":0,"clock":"0ms","title":"목록 키가 지워진 순간, 150명이 동시에 동네 목록을 연다","flows":[{"id":"app:l1","label":"1명","text":"목록 요청 1건","kind":"run"},{"id":"app:l2","label":"149명","text":"목록 요청 149건","kind":"run"}],"cmd":[],"note":null,"focus":[]},{"app":["150명이","동시에 목록을 엶","run"],"workers":{"l1":"없음 → DB 로","l2":"149개 모두 없음 → DB 로","l3":"이 장면에선 안 씀"},"mq":"비어 있음","feed":null,"feedNote":"키 없음 · 방금 지워짐","post":["글 30개 요약 모두 있음","ok"],"postTtl":"TTL 3초 (실험값)","lock":["없음","none"],"lockPx":"","pool":0,"queue":0,"queries":"0","dbNote":"","fresh":[],"t":1,"clock":"1ms","title":"150명 모두 ZREVRANGE → 없음. 각자 DB 에서 목록을 만들러 간다","flows":[{"id":"l1:vk","label":"없음","text":"ZREVRANGE → 없음","kind":"run"},{"id":"l2:vk","label":"없음 ×149","text":"ZREVRANGE ×149 → 없음","kind":"bad"}],"cmd":[0,2],"note":null,"focus":[]},{"app":["150명이","동시에 목록을 엶","run"],"workers":{"l1":"쿼리 중","l2":"9개 쿼리 중 · 140개 줄 섬","l3":"이 장면에선 안 씀"},"mq":"비어 있음","feed":null,"feedNote":"키 없음 · 방금 지워짐","post":["글 30개 요약 모두 있음","ok"],"postTtl":"TTL 3초 (실험값)","lock":["없음","none"],"lockPx":"","pool":10,"queue":140,"queries":"0","dbNote":"같은 쿼리 150건","fresh":[],"t":2,"clock":"2ms","title":"150명이 같은 목록 쿼리를 PostgreSQL 에 보낸다. 커넥션은 10개라 140명은 줄을 선다","flows":[{"id":"l1:db","label":"쿼리","text":"목록 쿼리 (50ms)","kind":"run"},{"id":"l2:db","label":"쿼리 ×149","text":"쿼리 149건 · 140건 줄 섬","kind":"bad"}],"cmd":[],"note":null,"focus":[]},{"app":["150명이","동시에 목록을 엶","run"],"workers":{"l1":"받음 · 끝","l2":"9개 받음 · 130개 줄 섬","l3":"이 장면에선 안 씀"},"mq":"비어 있음","feed":["30","29","28","27","26","25"],"feedNote":"채워짐 · 같은 목록을 10번 씀","post":["글 30개 요약 모두 있음","ok"],"postTtl":"TTL 3초 (실험값)","lock":["없음","none"],"lockPx":"","pool":10,"queue":130,"queries":"10","dbNote":"같은 쿼리 150건","fresh":["30","29","28","27","26","25"],"t":50,"clock":"50ms","title":"50ms: 먼저 커넥션을 얻은 10명이 목록을 받아 각자 캐시에 넣는다. 140명은 아직 못 받았다(10명 쿼리 중 · 130명 줄)","flows":[{"id":"l1:vk","label":"목록 넣기","text":"Lua: DEL → ZADD ×30","kind":"run"},{"id":"l2:vk","label":"목록 넣기 ×9","text":"같은 목록 9번 더 넣음","kind":"bad"}],"cmd":[1],"note":null,"focus":[]},{"app":["150명 모두 받음","가장 늦게 790ms","hold"],"workers":{"l1":"끝","l2":"끝 · 가장 늦게 790ms","l3":"이 장면에선 안 씀"},"mq":"비어 있음","feed":["30","29","28","27","26","25"],"feedNote":"같은 목록을 150번 씀","post":["글 30개 요약 모두 있음","ok"],"postTtl":"TTL 3초 (실험값)","lock":["없음","none"],"lockPx":"","pool":0,"queue":0,"queries":"150","dbNote":"같은 쿼리 150건","fresh":[],"t":790,"clock":"790ms","title":"790ms: 줄 선 140명이 10명씩 차례로 끝난다. 캐시는 50ms 에 이미 찼지만, 처음에 없음을 본 요청은 모두 DB 를 거쳤다","flows":[{"id":"l2:db","label":"쿼리 ×140","text":"쿼리 140건 더 · 누적 150","kind":"bad"},{"id":"l2:vk","label":"목록 넣기 ×140","text":"같은 목록 140번 더 넣음","kind":"bad"}],"cmd":[1],"note":null,"focus":[]}]},"stampede-after":{"lanes":{"l1":"먼저 온 요청","l2":"나머지 149명","l3":"캐시 리스너"},"off":[],"axis":{"max":820,"ticks":[0,200,400,600,800]},"tl":["req","db"],"segs":[["req",1,60,"hold","149명이 20ms 마다 다시 읽다가 60ms 에 받음"],["req",60,60,"ok"],["db",2,52,"send","쿼리 1번"]],"result":[["목록 DB 쿼리","1번","ok"],["가장 늦은 응답","99ms","ok"],["받은 사람","150명",""]],"stages":[{"app":["150명이","동시에 목록을 엶","run"],"workers":{"l1":"목록 요청","l2":"목록 요청 149개","l3":"이 장면에선 안 씀"},"mq":"비어 있음","feed":null,"feedNote":"키 없음 · 방금 지워짐","post":["글 30개 요약 모두 있음","ok"],"postTtl":"TTL 3초 (실험값)","lock":["없음","none"],"lockPx":"","pool":0,"queue":0,"queries":"0","dbNote":"","fresh":[],"t":0,"clock":"0ms","title":"목록 키가 지워진 순간, 150명이 동시에 동네 목록을 연다","flows":[{"id":"app:l1","label":"1명","text":"목록 요청 1건","kind":"run"},{"id":"app:l2","label":"149명","text":"목록 요청 149건","kind":"run"}],"cmd":[],"note":null,"focus":[]},{"app":["150명이","동시에 목록을 엶","run"],"workers":{"l1":"락 잡음","l2":"20ms 쉬고 다시 읽기","l3":"이 장면에선 안 씀"},"mq":"비어 있음","feed":null,"feedNote":"키 없음 · 방금 지워짐","post":["글 30개 요약 모두 있음","ok"],"postTtl":"TTL 3초 (실험값)","lock":["토큰 a1 (먼저 온 요청)","run"],"lockPx":"PX 500ms","pool":0,"queue":0,"queries":"0","dbNote":"","fresh":[],"t":1,"clock":"1ms","title":"모두 ZREVRANGE → 없음 → SET lock NX PX 500. 먼저 온 요청만 OK, 149명은 실패한다","flows":[{"id":"l1:vk","label":"없음 · 락 OK","text":"없음 → SET NX → OK","kind":"run"},{"id":"l2:vk","label":"없음 · 락 실패","text":"없음 → SET NX ×149 → 실패","kind":"run"}],"cmd":[0,1],"note":null,"focus":[]},{"app":["150명이","동시에 목록을 엶","run"],"workers":{"l1":"쿼리 중","l2":"20ms 마다 다시 읽기","l3":"이 장면에선 안 씀"},"mq":"비어 있음","feed":null,"feedNote":"키 없음 · 방금 지워짐","post":["글 30개 요약 모두 있음","ok"],"postTtl":"TTL 3초 (실험값)","lock":["토큰 a1 (먼저 온 요청)","run"],"lockPx":"PX 500ms","pool":1,"queue":0,"queries":"0","dbNote":"쿼리 1건만","fresh":[],"t":2,"clock":"2ms","title":"락을 잡은 한 명만 PostgreSQL 에 목록 쿼리(50ms). 149명은 20ms, 40ms 에 다시 읽지만 아직 없다","flows":[{"id":"l1:db","label":"쿼리 1","text":"목록 쿼리 (50ms)","kind":"run"},{"id":"l2:vk","label":"다시 읽기","text":"20 · 40ms 에 다시 읽기 → 없음","kind":"run"}],"cmd":[0],"note":null,"focus":[]},{"app":["150명이","동시에 목록을 엶","run"],"workers":{"l1":"받음 · 끝","l2":"20ms 마다 다시 읽기","l3":"이 장면에선 안 씀"},"mq":"비어 있음","feed":["30","29","28","27","26","25"],"feedNote":"채워짐 · 한 번 씀","post":["글 30개 요약 모두 있음","ok"],"postTtl":"TTL 3초 (실험값)","lock":["없음","none"],"lockPx":"","pool":0,"queue":0,"queries":"1","dbNote":"쿼리 1건만","fresh":["30","29","28","27","26","25"],"t":52,"clock":"52ms","title":"52ms: 쿼리 끝 → 목록을 Lua 한 번으로 바꿔 넣고 → 락을 푼다(값이 내 토큰일 때만 DEL)","flows":[{"id":"l1:vk","label":"넣고 락 풀기","text":"목록 넣기 · 내 토큰이면 DEL lock","kind":"run"}],"cmd":[2],"note":null,"focus":[]},{"app":["150명이","동시에 목록을 엶","run"],"workers":{"l1":"끝","l2":"149개 받음","l3":"이 장면에선 안 씀"},"mq":"비어 있음","feed":["30","29","28","27","26","25"],"feedNote":"채워짐 · 한 번 씀","post":["글 30개 요약 모두 있음","ok"],"postTtl":"TTL 3초 (실험값)","lock":["없음","none"],"lockPx":"","pool":0,"queue":0,"queries":"1","dbNote":"쿼리 1건만","fresh":[],"t":60,"clock":"60ms","title":"60ms: 149명이 세 번째 다시 읽기(20 · 40 · 60ms)에서 목록을 받는다","flows":[{"id":"l2:vk","label":"있음 ×149","text":"ZREVRANGE ×149 → 있음","kind":"run"}],"cmd":[0],"note":null,"focus":[]},{"app":["150명 모두 받음","가장 늦게 99ms","ok"],"workers":{"l1":"끝","l2":"끝","l3":"이 장면에선 안 씀"},"mq":"비어 있음","feed":["30","29","28","27","26","25"],"feedNote":"채워짐 · 한 번 씀","post":["글 30개 요약 모두 있음","ok"],"postTtl":"TTL 3초 (실험값)","lock":["없음","none"],"lockPx":"","pool":0,"queue":0,"queries":"1","dbNote":"쿼리 1건만","fresh":[],"t":99,"clock":"99ms","title":"계산으로는 60ms 지만, 150개 요청이 한꺼번에 도는 실험에서 가장 늦은 응답은 99ms. 목록 DB 쿼리는 1번","flows":[],"cmd":[],"note":"PostgreSQL: 목록 쿼리 1번, 커넥션 1개만 50ms","focus":["db"]}]},"event-only":{"lanes":{"l1":"글 API","l2":"목록 요청","l3":"캐시 리스너"},"off":["lock"],"axis":null,"tl":[],"segs":[],"result":[["목록 다시 만들기","0번 (처음 1번 뒤)","ok"],["화면 목록","글 4 · 글 2 (오타 고침) · 글 1","ok"],["같은 이벤트 2번 더","목록에 1개","ok"]],"stages":[{"app":["대기","","none"],"workers":{"l1":"글 1~3 씀","l2":"대기","l3":"키 없음 · 그냥 넘김"},"mq":"비어 있음","feed":null,"feedNote":"키 없음","post":["없음","none"],"postTtl":"","lock":["없음","none"],"lockPx":"","pool":0,"queue":0,"queries":"0","dbNote":"","fresh":[],"t":0,"clock":"","title":"글 1~3 작성 → PostCreated 3건. 목록 키가 아직 없어서 넣지 않는다 (넣으면 글 하나짜리 반쪽 목록이 완전한 목록처럼 읽힌다)","flows":[{"id":"db:mq","label":"PostCreated ×3","text":"릴레이 → PostCreated 3건","kind":"run"},{"id":"mq:l3","label":"×3","text":"PostCreated 3건 전달","kind":"run"},{"id":"l3:vk","label":"키 없음 → 안 넣음","text":"EXISTS → 0 → 안 넣음","kind":"run"}],"cmd":[0],"note":null,"focus":[]},{"app":["화면 목록","글 3 · 글 2 · 글 1","ok"],"workers":{"l1":"대기","l2":"목록 만듦","l3":"대기"},"mq":"비어 있음","feed":["3","2","1"],"feedNote":"TTL 10분","post":["글 2","ok"],"postTtl":"TTL 3초 (실험값)","lock":["없음","none"],"lockPx":"","pool":0,"queue":0,"queries":"1","dbNote":"","fresh":["3","2","1"],"t":0,"clock":"","title":"첫 목록 요청: 없음 → PostgreSQL 에서 목록을 만들어 넣는다 (목록 쿼리 1번)","flows":[{"id":"app:l2","label":"목록","text":"목록 요청","kind":"run"},{"id":"l2:vk","label":"없음 → 넣기","text":"없음 → 목록 · 요약 넣기","kind":"run"},{"id":"l2:db","label":"목록 쿼리","text":"목록 쿼리 + 글 요약 3건 읽기","kind":"run"}],"cmd":[],"note":null,"focus":[]},{"app":["화면 목록","글 3 · 글 2 · 글 1","ok"],"workers":{"l1":"글 4 씀","l2":"대기","l3":"대기"},"mq":"PostCreated #4","feed":["3","2","1"],"feedNote":"TTL 10분","post":["글 2","ok"],"postTtl":"TTL 3초 (실험값)","lock":["없음","none"],"lockPx":"","pool":0,"queue":0,"queries":"1","dbNote":"","fresh":[],"t":0,"clock":"","title":"글 4 작성: 글과 outbox 행을 한 트랜잭션에 저장 → 릴레이가 PostCreated 발행","flows":[{"id":"app:l1","label":"글 4","text":"POST /posts (글 4)","kind":"run"},{"id":"l1:db","label":"INSERT","text":"INSERT 글 + outbox 커밋","kind":"run"},{"id":"db:mq","label":"PostCreated","text":"릴레이 → PostCreated 발행","kind":"run"}],"cmd":[],"note":null,"focus":[]},{"app":["화면 목록","글 3 · 글 2 · 글 1","ok"],"workers":{"l1":"대기","l2":"대기","l3":"ZADD 4"},"mq":"비어 있음","feed":["4","3","2","1"],"feedNote":"TTL 10분","post":["글 2","ok"],"postTtl":"TTL 3초 (실험값)","lock":["없음","none"],"lockPx":"","pool":0,"queue":0,"queries":"1","dbNote":"","fresh":["4"],"t":0,"clock":"","title":"캐시 리스너: 목록 키가 있으니 ZADD 4 → 점수(글 ID)가 가장 커서 맨 앞에 선다","flows":[{"id":"mq:l3","label":"PostCreated","text":"PostCreated 전달","kind":"run"},{"id":"l3:vk","label":"ZADD 4","text":"ZADD region:42:latest 4 4","kind":"run"}],"cmd":[0],"note":null,"focus":[]},{"app":["화면 목록","글 3 · 글 2 · 글 1","ok"],"workers":{"l1":"제목 고침","l2":"대기","l3":"DEL post:2"},"mq":"비어 있음","feed":["4","3","2","1"],"feedNote":"TTL 10분","post":["없음 (지움)","none"],"postTtl":"","lock":["없음","none"],"lockPx":"","pool":0,"queue":0,"queries":"1","dbNote":"","fresh":[],"t":0,"clock":"","title":"글 2 제목 수정 → PostUpdated → 캐시 리스너가 DEL post:2. 목록의 ID 는 그대로 둔다","flows":[{"id":"app:l1","label":"제목 수정","text":"PATCH /posts/2","kind":"run"},{"id":"l1:db","label":"UPDATE","text":"UPDATE 제목 + outbox 커밋","kind":"run"},{"id":"db:mq","label":"PostUpdated","text":"릴레이 → PostUpdated 발행","kind":"run"},{"id":"mq:l3","label":"PostUpdated","text":"PostUpdated 전달","kind":"run"},{"id":"l3:vk","label":"DEL post:2","text":"DEL post:2 (+1초 뒤 한 번 더)","kind":"run"}],"cmd":[1],"note":null,"focus":[]},{"app":["화면 목록","글 3 · 글 2 · 글 1","ok"],"workers":{"l1":"가림","l2":"대기","l3":"ZREM 3"},"mq":"비어 있음","feed":["4","2","1"],"feedNote":"TTL 10분","post":["없음 (지움)","none"],"postTtl":"","lock":["없음","none"],"lockPx":"","pool":0,"queue":0,"queries":"1","dbNote":"","fresh":[],"t":0,"clock":"","title":"글 3 신고 블라인드 → PostBlinded → 캐시 리스너가 ZREM 3 + DEL post:3. 목록 키는 지우지 않아서 빈 순간이 없다","flows":[{"id":"app:l1","label":"블라인드","text":"POST /posts/3/blind","kind":"run"},{"id":"l1:db","label":"UPDATE","text":"blinded_at + outbox 커밋","kind":"run"},{"id":"db:mq","label":"PostBlinded","text":"릴레이 → PostBlinded 발행","kind":"run"},{"id":"mq:l3","label":"PostBlinded","text":"PostBlinded 전달","kind":"run"},{"id":"l3:vk","label":"ZREM 3","text":"ZREM 3 · DEL post:3","kind":"run"}],"cmd":[2],"note":null,"focus":[]},{"app":["화면 목록","글 3 · 글 2 · 글 1","ok"],"workers":{"l1":"대기","l2":"대기","l3":"ZADD 4 ×2 · 그대로"},"mq":"비어 있음","feed":["4","2","1"],"feedNote":"TTL 10분","post":["없음 (지움)","none"],"postTtl":"","lock":["없음","none"],"lockPx":"","pool":0,"queue":0,"queries":"1","dbNote":"","fresh":[],"t":0,"clock":"","title":"같은 PostCreated(글 4)가 두 번 더 왔다 → ZADD 4 두 번 더. 이미 있는 값이라 목록은 그대로","flows":[{"id":"db:mq","label":"PostCreated ×2","text":"같은 PostCreated 2번 더","kind":"bad"},{"id":"mq:l3","label":"×2","text":"PostCreated 2번 전달","kind":"run"},{"id":"l3:vk","label":"ZADD 4 ×2","text":"ZADD 4 두 번 더 → 그대로","kind":"run"}],"cmd":[0],"note":null,"focus":[]},{"app":["화면 목록","4 · 2(새 제목) · 1","ok"],"workers":{"l1":"대기","l2":"목록 받음","l3":"대기"},"mq":"비어 있음","feed":["4","2","1"],"feedNote":"TTL 10분","post":["글 2 (오타 고침)","ok"],"postTtl":"TTL 3초 (실험값)","lock":["없음","none"],"lockPx":"","pool":0,"queue":0,"queries":"1","dbNote":"없는 요약만 읽음","fresh":[],"t":0,"clock":"","title":"다음 목록 요청: ID 는 캐시에서 읽고, 요약이 없는 글만 DB 에서 읽는다(글 2 는 지웠고 글 4 는 아직 아무도 안 읽었다). 목록 쿼리는 처음 1번뿐","flows":[{"id":"app:l2","label":"목록","text":"목록 요청","kind":"run"},{"id":"l2:vk","label":"ID · 요약","text":"ID 4 · 2 · 1, 요약 2 · 4 없음","kind":"run"},{"id":"l2:db","label":"없는 요약만","text":"없는 글 요약만 읽기 → SET","kind":"run"}],"cmd":[],"note":null,"focus":[]}]},"race-before":{"lanes":{"l1":"요청 R","l2":"글 API","l3":"캐시 리스너"},"off":["feed","lock"],"axis":{"max":3500,"ticks":[0,1000,2000,3000]},"tl":["lis","ttl","screen"],"segs":[["lis",0,0,"ok","DEL (지울 것 없음)"],["ttl",0,3000,"lease"],["ttl",3000,3000,"fail","TTL 이 지움"],["screen",0,3040,"wrong","옛 제목"],["screen",3040,3500,"valid","새 제목"]],"result":[["옛 제목이 보인 시간","3,040ms","bad"],["옛 값을 지운 것","TTL 3초","hold"]],"stages":[{"app":["화면 제목","(아직 못 받음)","none"],"workers":{"l1":"옛 제목을 들고 멈춤","l2":"대기","l3":"대기"},"mq":"비어 있음","feed":null,"feedNote":"","post":["없음","none"],"postTtl":"","lock":["없음","none"],"lockPx":"","pool":0,"queue":0,"queries":"1","dbNote":"제목: 상추 나눔햇어요","fresh":[],"t":0,"clock":"0ms","title":"요청 R: MGET post:7 → 없음 → PostgreSQL 에서 옛 제목 '상추 나눔햇어요' 를 읽고, 캐시에 넣기 전에 GC 로 멈춘다","flows":[{"id":"app:l1","label":"목록","text":"목록 요청","kind":"run"},{"id":"l1:vk","label":"MGET 없음","text":"MGET post:7 → 없음","kind":"run"},{"id":"l1:db","label":"옛 제목","text":"post 7 읽기 → 상추 나눔햇어요","kind":"run"}],"cmd":[0],"note":null,"focus":[]},{"app":["화면 제목","(아직 못 받음)","none"],"workers":{"l1":"옛 제목을 들고 멈춤","l2":"제목 고침","l3":"대기"},"mq":"PostUpdated #7","feed":null,"feedNote":"","post":["없음","none"],"postTtl":"","lock":["없음","none"],"lockPx":"","pool":0,"queue":0,"queries":"1","dbNote":"제목: 상추 나눔했어요","fresh":[],"t":0,"clock":"0ms","title":"그사이 작성자가 제목을 고친다: UPDATE 와 outbox 행을 한 트랜잭션에 커밋 → 릴레이가 PostUpdated 발행","flows":[{"id":"app:l2","label":"제목 수정","text":"PATCH /posts/7","kind":"run"},{"id":"l2:db","label":"UPDATE","text":"UPDATE 제목 + outbox 커밋","kind":"run"},{"id":"db:mq","label":"PostUpdated","text":"릴레이 → PostUpdated 발행","kind":"run"}],"cmd":[],"note":null,"focus":[]},{"app":["화면 제목","(아직 못 받음)","none"],"workers":{"l1":"옛 제목을 들고 멈춤","l2":"대기","l3":"DEL 한 번 · 끝"},"mq":"비어 있음","feed":null,"feedNote":"","post":["없음","none"],"postTtl":"","lock":["없음","none"],"lockPx":"","pool":0,"queue":0,"queries":"1","dbNote":"제목: 상추 나눔했어요","fresh":[],"t":0,"clock":"0ms","title":"캐시 리스너: DEL post:7. 아직 아무도 넣지 않아서 지울 것이 없다","flows":[{"id":"mq:l3","label":"PostUpdated","text":"PostUpdated 전달","kind":"run"},{"id":"l3:vk","label":"DEL","text":"DEL post:7 → 지울 것 없음","kind":"run"}],"cmd":[1],"note":null,"focus":[]},{"app":["화면 제목","상추 나눔햇어요","bad"],"workers":{"l1":"옛 제목을 넣음","l2":"대기","l3":"대기"},"mq":"비어 있음","feed":null,"feedNote":"","post":["상추 나눔햇어요 (옛 제목)","bad"],"postTtl":"TTL 3초","lock":["없음","none"],"lockPx":"","pool":0,"queue":0,"queries":"1","dbNote":"제목: 상추 나눔했어요","fresh":[],"t":0,"clock":"0ms","title":"R 이 깨어나 읽어 둔 옛 제목을 넣는다: SET post:7 '상추 나눔햇어요' EX 3. 옛 제목이 캐시에 들어갔다","flows":[{"id":"l1:vk","label":"SET 옛 제목","text":"SET post:7 상추 나눔햇어요 EX 3","kind":"bad"}],"cmd":[0],"note":null,"focus":[]},{"app":["화면 제목","상추 나눔햇어요","bad"],"workers":{"l1":"대기","l2":"대기","l3":"대기"},"mq":"비어 있음","feed":null,"feedNote":"","post":["상추 나눔햇어요 (옛 제목)","bad"],"postTtl":"TTL 2초 남음","lock":["없음","none"],"lockPx":"","pool":0,"queue":0,"queries":"1","dbNote":"제목: 상추 나눔했어요","fresh":[],"t":1000,"clock":"1,000ms","title":"1초: 화면에는 아직 옛 제목. 이 키를 다시 지울 사람이 없다","flows":[],"cmd":[2],"note":"Valkey: post:7 = 옛 제목, TTL 2초 남음","focus":["vk"]},{"app":["화면 제목","상추 나눔했어요","ok"],"workers":{"l1":"새 제목을 넣음","l2":"대기","l3":"대기"},"mq":"비어 있음","feed":null,"feedNote":"","post":["상추 나눔했어요","ok"],"postTtl":"TTL 3초","lock":["없음","none"],"lockPx":"","pool":0,"queue":0,"queries":"2","dbNote":"제목: 상추 나눔했어요","fresh":[],"t":3040,"clock":"3,040ms","title":"3,040ms: TTL 3초가 지나 키가 사라짐 → 다음 읽기(MGET)가 없음 → DB 에서 새 제목을 읽어 넣는다 (100ms 마다 읽어서 3초보다 조금 늦게 본다)","flows":[{"id":"l1:vk","label":"없음 → SET","text":"MGET post:7 → 없음 → SET 새 제목","kind":"run"},{"id":"l1:db","label":"새 제목","text":"post 7 읽기 → 상추 나눔했어요","kind":"run"}],"cmd":[0],"note":null,"focus":[]}]},"race-after":{"lanes":{"l1":"요청 R","l2":"글 API","l3":"캐시 리스너"},"off":["feed","lock"],"axis":{"max":3500,"ticks":[0,1000,2000,3000]},"tl":["lis","ttl","screen"],"segs":[["lis",0,0,"ok","DEL"],["lis",956,956,"ok","두 번째 DEL"],["ttl",0,956,"lease"],["screen",0,956,"wrong","옛 제목"],["screen",956,3500,"valid","새 제목"]],"result":[["옛 제목이 보인 시간","956ms","ok"],["옛 값을 지운 것","두 번째 DEL","ok"]],"stages":[{"app":["화면 제목","(아직 못 받음)","none"],"workers":{"l1":"옛 제목을 들고 멈춤","l2":"대기","l3":"대기"},"mq":"비어 있음","feed":null,"feedNote":"","post":["없음","none"],"postTtl":"","lock":["없음","none"],"lockPx":"","pool":0,"queue":0,"queries":"1","dbNote":"제목: 상추 나눔햇어요","fresh":[],"t":0,"clock":"0ms","title":"요청 R: MGET post:7 → 없음 → PostgreSQL 에서 옛 제목 '상추 나눔햇어요' 를 읽고, 캐시에 넣기 전에 GC 로 멈춘다","flows":[{"id":"app:l1","label":"목록","text":"목록 요청","kind":"run"},{"id":"l1:vk","label":"MGET 없음","text":"MGET post:7 → 없음","kind":"run"},{"id":"l1:db","label":"옛 제목","text":"post 7 읽기 → 상추 나눔햇어요","kind":"run"}],"cmd":[0],"note":null,"focus":[]},{"app":["화면 제목","(아직 못 받음)","none"],"workers":{"l1":"옛 제목을 들고 멈춤","l2":"제목 고침","l3":"대기"},"mq":"PostUpdated #7","feed":null,"feedNote":"","post":["없음","none"],"postTtl":"","lock":["없음","none"],"lockPx":"","pool":0,"queue":0,"queries":"1","dbNote":"제목: 상추 나눔했어요","fresh":[],"t":0,"clock":"0ms","title":"그사이 작성자가 제목을 고친다: UPDATE 와 outbox 행을 한 트랜잭션에 커밋 → 릴레이가 PostUpdated 발행","flows":[{"id":"app:l2","label":"제목 수정","text":"PATCH /posts/7","kind":"run"},{"id":"l2:db","label":"UPDATE","text":"UPDATE 제목 + outbox 커밋","kind":"run"},{"id":"db:mq","label":"PostUpdated","text":"릴레이 → PostUpdated 발행","kind":"run"}],"cmd":[],"note":null,"focus":[]},{"app":["화면 제목","(아직 못 받음)","none"],"workers":{"l1":"옛 제목을 들고 멈춤","l2":"대기","l3":"1초 뒤 DEL 예약"},"mq":"비어 있음","feed":null,"feedNote":"","post":["없음","none"],"postTtl":"","lock":["없음","none"],"lockPx":"","pool":0,"queue":0,"queries":"1","dbNote":"제목: 상추 나눔했어요","fresh":[],"t":0,"clock":"0ms","title":"캐시 리스너: DEL post:7, 그리고 1초 뒤에 한 번 더 지우기를 예약한다","flows":[{"id":"mq:l3","label":"PostUpdated","text":"PostUpdated 전달","kind":"run"},{"id":"l3:vk","label":"DEL +1초 예약","text":"DEL post:7 · 1초 뒤 DEL 예약","kind":"run"}],"cmd":[1],"note":null,"focus":[]},{"app":["화면 제목","상추 나눔햇어요","bad"],"workers":{"l1":"옛 제목을 넣음","l2":"대기","l3":"1초 뒤 DEL 예약"},"mq":"비어 있음","feed":null,"feedNote":"","post":["상추 나눔햇어요 (옛 제목)","bad"],"postTtl":"TTL 3초","lock":["없음","none"],"lockPx":"","pool":0,"queue":0,"queries":"1","dbNote":"제목: 상추 나눔했어요","fresh":[],"t":0,"clock":"0ms","title":"R 이 깨어나 읽어 둔 옛 제목을 넣는다: SET post:7 '상추 나눔햇어요' EX 3. 옛 제목이 캐시에 들어갔다","flows":[{"id":"l1:vk","label":"SET 옛 제목","text":"SET post:7 상추 나눔햇어요 EX 3","kind":"bad"}],"cmd":[0],"note":null,"focus":[]},{"app":["화면 제목","상추 나눔햇어요","bad"],"workers":{"l1":"대기","l2":"대기","l3":"두 번째 DEL"},"mq":"비어 있음","feed":null,"feedNote":"","post":["없음 (지움)","none"],"postTtl":"","lock":["없음","none"],"lockPx":"","pool":0,"queue":0,"queries":"1","dbNote":"제목: 상추 나눔했어요","fresh":[],"t":956,"clock":"956ms","title":"956ms: 예약해 둔 두 번째 DEL → 옛 제목이 지워진다. R 이 첫 DEL 보다 조금 늦게 넣어서 1초보다 조금 짧다 (실험은 100ms 마다 읽어 몇십 ms 오차가 있다)","flows":[{"id":"l3:vk","label":"두 번째 DEL","text":"DEL post:7 (예약해 둔 두 번째)","kind":"run"}],"cmd":[1],"note":null,"focus":[]},{"app":["화면 제목","상추 나눔했어요","ok"],"workers":{"l1":"새 제목을 넣음","l2":"대기","l3":"대기"},"mq":"비어 있음","feed":null,"feedNote":"","post":["상추 나눔했어요","ok"],"postTtl":"TTL 3초","lock":["없음","none"],"lockPx":"","pool":0,"queue":0,"queries":"2","dbNote":"제목: 상추 나눔했어요","fresh":[],"t":956,"clock":"956ms","title":"다음 읽기(MGET)가 없음 → DB 에서 새 제목을 읽어 넣는다","flows":[{"id":"l1:vk","label":"없음 → SET","text":"MGET post:7 → 없음 → SET 새 제목","kind":"run"},{"id":"l1:db","label":"새 제목","text":"post 7 읽기 → 상추 나눔했어요","kind":"run"}],"cmd":[0],"note":null,"focus":[]}]},"ttl-before":{"lanes":{"l1":"읽는 요청들","l2":"—","l3":"—"},"off":["feed","lock"],"axis":{"max":13,"ticks":[0,2,4,6,8,10,12]},"tl":["fill","expire"],"segs":[["fill",0,0,"ok","5만 개 채움"],["expire",10,10,"fail","5만 개 · 3초 안에 만료"]],"result":[["만료가 몰린 시간","3초","bad"],["그동안 초당 DB 읽기","약 1만 7천","bad"]],"stages":[{"app":["배포 직후","인기 글을 읽음","run"],"workers":{"l1":"5만 개 채움","l2":"—","l3":"—"},"mq":"비어 있음","feed":null,"feedNote":"","post":["5만 개","run"],"postTtl":"만료 7:10:00~7:10:03","lock":["없음","none"],"lockPx":"","pool":0,"queue":0,"queries":"5만","dbNote":"","fresh":[],"t":0,"clock":"7:00","title":"7:00:00~7:00:03 배포 직후 인기 글 5만 개를 읽으며 SET post:{id} EX 600 으로 채운다","flows":[{"id":"app:l1","label":"읽기","text":"인기 글 읽기","kind":"run"},{"id":"l1:vk","label":"SET ×5만","text":"SET post:{id} EX 600 × 5만","kind":"run"},{"id":"l1:db","label":"읽기 ×5만","text":"글 요약 5만 건 읽기","kind":"run"}],"cmd":[0],"note":null,"focus":[]},{"app":["7:10","목록이 느려짐","bad"],"workers":{"l1":"5만 개 다시 채움","l2":"—","l3":"—"},"mq":"비어 있음","feed":null,"feedNote":"","post":["3초 동안 5만 개 사라짐","bad"],"postTtl":"","lock":["없음","none"],"lockPx":"","pool":0,"queue":0,"queries":"10만","dbNote":"초당 약 1만 7천 건","fresh":[],"t":10,"clock":"7:10","title":"7:10:00~7:10:03 5만 개가 3초 안에 한꺼번에 만료 → 다음 읽기가 모두 없음 → 3초 동안 DB 읽기 5만 번 (초당 약 1만 7천)","flows":[{"id":"l1:vk","label":"없음 ×5만","text":"읽기 → 3초 동안 5만 번 없음","kind":"bad"},{"id":"l1:db","label":"읽기 ×5만","text":"3초에 5만 건 · 초당 약 1.7만","kind":"bad"}],"cmd":[1],"note":null,"focus":[]},{"app":["7:10","목록이 느려짐","bad"],"workers":{"l1":"5만 개 다시 채움","l2":"—","l3":"—"},"mq":"비어 있음","feed":null,"feedNote":"","post":["3초 동안 5만 개 사라짐","bad"],"postTtl":"","lock":["없음","none"],"lockPx":"","pool":0,"queue":0,"queries":"10만","dbNote":"초당 약 1만 7천 건","fresh":[],"t":13,"clock":"7:13","title":"키마다 락(single-flight)을 걸어도 키가 5만 개라 5만 번이다. 만료 시각 자체를 흩어야 한다","flows":[],"cmd":[],"note":"PostgreSQL: 3초에 5만 건이 몰림","focus":["db"]}]},"ttl-after":{"lanes":{"l1":"읽는 요청들","l2":"—","l3":"—"},"off":["feed","lock"],"axis":{"max":13,"ticks":[0,2,4,6,8,10,12]},"tl":["fill","expire"],"segs":[["fill",0,0,"ok","5만 개 채움"],["expire",10,12,"down","2분에 걸쳐 만료 · 초당 약 420"]],"result":[["만료가 몰린 시간","2분","ok"],["그동안 초당 DB 읽기","약 420","ok"]],"stages":[{"app":["배포 직후","인기 글을 읽음","run"],"workers":{"l1":"5만 개 채움","l2":"—","l3":"—"},"mq":"비어 있음","feed":null,"feedNote":"","post":["5만 개","run"],"postTtl":"만료 7:10~7:12 사이","lock":["없음","none"],"lockPx":"","pool":0,"queue":0,"queries":"5만","dbNote":"","fresh":[],"t":0,"clock":"7:00","title":"7:00:00~7:00:03 같은 5만 개를 채우되, 키마다 TTL 에 0~120초를 무작위로 더한다","flows":[{"id":"app:l1","label":"읽기","text":"인기 글 읽기","kind":"run"},{"id":"l1:vk","label":"SET ×5만","text":"SET post:{id} EX 600+지터 × 5만","kind":"run"},{"id":"l1:db","label":"읽기 ×5만","text":"글 요약 5만 건 읽기","kind":"run"}],"cmd":[0],"note":null,"focus":[]},{"app":["7:10","평소처럼","ok"],"workers":{"l1":"조금씩 다시 채움","l2":"—","l3":"—"},"mq":"비어 있음","feed":null,"feedNote":"","post":["2분에 걸쳐 조금씩","ok"],"postTtl":"","lock":["없음","none"],"lockPx":"","pool":0,"queue":0,"queries":"5만","dbNote":"초당 약 420건","fresh":[],"t":10,"clock":"7:10","title":"7:10:00 부터 만료가 시작되지만 2분에 고르게 흩어진다 → DB 읽기 초당 약 420번","flows":[{"id":"l1:vk","label":"없음 (조금씩)","text":"읽기 → 초당 약 420번 없음","kind":"run"},{"id":"l1:db","label":"초당 ~420","text":"글 요약 읽기 초당 약 420건","kind":"run"}],"cmd":[1],"note":null,"focus":[]},{"app":["7:10","평소처럼","ok"],"workers":{"l1":"조금씩 다시 채움","l2":"—","l3":"—"},"mq":"비어 있음","feed":null,"feedNote":"","post":["2분에 걸쳐 조금씩","ok"],"postTtl":"","lock":["없음","none"],"lockPx":"","pool":0,"queue":0,"queries":"10만","dbNote":"초당 약 420건","fresh":[],"t":12,"clock":"7:12","title":"7:12:03 이면 모두 한 번씩 다시 채워졌다. 읽기가 TTL 을 늘리지 않으니, 옛 값이 남아도 최대 12분이면 사라진다","flows":[],"cmd":[],"note":"PostgreSQL: 2분 동안 초당 약 420건","focus":["db"]}]}}};
+const TL = {"x0":120,"x1":960,"rows":[447,470,493]};
+const NUM = "①②③④⑤⑥";
+const params = new URLSearchParams(location.search);
+let scn = D.scn[params.get("s")] ? params.get("s") : "stampede";
+const scnButtons = [...document.querySelectorAll("[data-scn-btn]")], scnLead = document.querySelector("[data-scn-lead]");
+const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+const boxOf = (node) => (node[0] === "l" ? "api" : node);
+const kindOf = (v) => /기다|줄 섬|다시 읽기|멈춤|예약/.test(v) ? "hold" : /옛|두 번|실패/.test(v) ? "bad" : /^대기$|안 씀|^—$|^끝$/.test(v) ? "none" : "run";
+
+const cards = Object.keys(D.cards).map((id) => {
+  const root = document.querySelector('[data-card="' + id + '"]'), C = D.cards[id];
+  const q = (s) => root.querySelector(s), qa = (s) => [...root.querySelectorAll(s)];
+  const byData = (attr) => Object.fromEntries(qa("[data-" + attr + "]").map((e) => [e.getAttribute("data-" + attr), e]));
+  const boxes = byData("box"), lanes = byData("lane"), arrows = byData("flow"), labels = byData("fl"), workers = byData("worker");
+  const cells = byData("cell"), cellTs = byData("cellt"), slots = byData("slot"), sqs = byData("sq"), stats = byData("stat");
+  const app1 = q("[data-app1]"), app2 = q("[data-app2]"), mq = q("[data-mq]"), pool = q("[data-pool]"), qn = q("[data-q]"), dbnote = q("[data-dbnote]");
+  const feedNone = q("[data-feednone]"), feedNote = q("[data-feednote]"), post = q("[data-post]"), postTtl = q("[data-postttl]"), lock = q("[data-lock]"), lockPx = q("[data-lockpx]");
+  const logG = q("[data-log]"), segG = q("[data-segs]"), cursor = q("[data-cursor]"), nowT = q("[data-now-t]");
+  const now = q("[data-now]"), steps = q("[data-steps]");
+  steps.innerHTML = C.stages.map((s) => "<li>" + esc(s.title) + "</li>").join("");
+  const items = [...steps.children];
+  const X = (t) => TL.x0 + (t / (C.axis ? C.axis.max : 1)) * (TL.x1 - TL.x0);
+  const laneY = Object.fromEntries(C.tl.map((l, i) => [l, TL.rows[i]]));
+  let shownK = -1, shownDone = null;
+  function tok(el, label, kind) { el.textContent = label; el.setAttribute("class", "t-tok k-" + kind); }
+  function draw(t) {
+    const n = C.stages.length, k = Math.min(n - 1, Math.floor(t / D.stageSeconds)), s = C.stages[k];
+    const done = t >= (n - 1) * D.stageSeconds + 0.3;
+    if (k !== shownK) {
+      shownK = k;
+      const on = Object.fromEntries(s.flows.map((f) => [f.id, f]));
+      for (const [fid, a] of Object.entries(arrows)) {
+        const kind = on[fid] ? (on[fid].kind === "bad" ? "bad" : "run") : "idle";
+        a.setAttribute("class", "flow" + (kind === "idle" ? "" : kind === "bad" ? " bad" : " on"));
+        a.setAttribute("marker-end", "url(#ah-" + kind + "-" + id + ")");
+      }
+      for (const [fid, g] of Object.entries(labels)) {
+        const f = on[fid];
+        if (!f) { g.setAttribute("visibility", "hidden"); continue; }
+        g.setAttribute("visibility", "visible"); g.setAttribute("class", "fl" + (f.kind === "bad" ? " bad" : ""));
+        const txt = g.querySelector("text"), r = g.querySelector("rect");
+        txt.textContent = f.label;
+        const w = txt.getComputedTextLength() + 10, cx = Number(g.dataset.cx), cy = Number(g.dataset.cy);
+        r.setAttribute("x", cx - w / 2); r.setAttribute("y", cy - 7); r.setAttribute("width", w);
+      }
+      const hot = new Set(s.focus);
+      for (const f of s.flows) for (const node of D.flows[f.id]) hot.add(boxOf(node));
+      const hotLanes = new Set(s.flows.flatMap((f) => D.flows[f.id]).filter((x) => lanes[x]));
+      for (const [b, el] of Object.entries(boxes)) el.setAttribute("class", "box" + (hot.has(b) ? " on" : ""));
+      tok(app1, s.app[0], "none"); tok(app2, s.app[1], s.app[2] || "none");
+      for (const l of Object.keys(lanes)) {
+        const v = s.workers[l], kind = kindOf(v);
+        lanes[l].setAttribute("class", "lane" + (kind === "hold" && !hotLanes.has(l) ? " hold" : hotLanes.has(l) ? " on" : ""));
+        tok(workers[l], v, kind);
+      }
+      tok(mq, s.mq, s.mq === "비어 있음" ? "none" : "run");
+      // Valkey
+      const feed = s.feed || [];
+      for (let i = 0; i < 6; i++) {
+        const v = feed[i];
+        cells[i].setAttribute("visibility", v ? "visible" : "hidden"); cellTs[i].setAttribute("visibility", v ? "visible" : "hidden");
+        cellTs[i].textContent = v ? "#" + v : "";
+        cells[i].setAttribute("class", "cell" + (v && s.fresh.includes(v) ? " new" : ""));
+      }
+      tok(feedNone, s.feed ? "" : C.off.includes("feed") ? "이 장면에선 안 씀" : "키 없음", C.off.includes("feed") ? "none" : "bad");
+      feedNote.textContent = s.feedNote;
+      tok(post, s.post[0], s.post[1]); postTtl.textContent = s.postTtl;
+      if (C.off.includes("lock")) tok(lock, "이 장면에선 안 씀", "none"); else tok(lock, s.lock[0], s.lock[1]);
+      lockPx.textContent = s.lockPx;
+      // PostgreSQL
+      for (let i = 0; i < 10; i++) slots[i].setAttribute("class", "slot2" + (i < s.pool ? " busy" : ""));
+      tok(pool, s.pool + "/10 사용" + (s.queue ? " · 줄 선 요청 " + s.queue : ""), s.queue ? "bad" : s.pool ? "hold" : "none");
+      qn.textContent = s.queries + "번";
+      tok(dbnote, s.dbNote, "none");
+      for (const [i, g] of Object.entries(sqs)) g.setAttribute("class", "sq" + (s.cmd.includes(Number(i)) ? " on" : ""));
+      // 시간축
+      if (segG) {
+        segG.innerHTML = C.segs.filter(([, from]) => from <= s.t).map(([lane, from, to, kind, label]) => {
+          // 지금 시각까지만 그린다. 마지막 단계에서는 남은 띠(새 제목 등)까지 모두 그린다.
+          const y = laneY[lane], x1 = X(from), x2 = X(k === n - 1 ? to : Math.min(to, s.t));
+          const tick = from === to, thin = kind === "lease";
+          const shape = tick ? '<rect class="sg-' + kind + '" x="' + (x1 - 1.5) + '" y="' + (y - 8) + '" width="3" height="16" rx="1"/>'
+            : '<rect class="sg-' + kind + '" x="' + x1 + '" y="' + (y + (thin ? -2 : -6)) + '" width="' + Math.max(1, x2 - x1) + '" height="' + (thin ? 4 : 12) + '" rx="' + (thin ? 1.5 : 2.5) + '"/>';
+          return shape + (label ? '<text class="t-cap" x="' + (x1 + 4) + '" y="' + (y - 9) + '">' + esc(label) + "</text>" : "");
+        }).join("");
+        cursor.setAttribute("x1", X(s.t)); cursor.setAttribute("x2", X(s.t));
+        nowT.textContent = "지금 " + s.clock;
+      }
+      // 요청 기록
+      const lines = s.flows.map((f, i) => {
+        const [from, to] = D.flows[f.id], bad = f.kind === "bad";
+        const name = (x) => C.lanes[x] || D.nodes[x];
+        return '<text class="lg" x="20" y="' + (236 + i * 16) + '"><tspan class="lg-n' + (bad ? " bad" : "") + '">' + NUM[i] + '</tspan> <tspan class="lg-who">' + esc(name(from)) + " → " + esc(name(to)) + '</tspan>  <tspan class="lg-what' + (bad ? " bad" : "") + '">' + esc(f.text) + "</tspan></text>";
+      });
+      if (s.note) lines.push('<text class="lg" x="20" y="' + (236 + lines.length * 16) + '"><tspan class="lg-what">요청 없음 · ' + esc(s.note) + "</tspan></text>");
+      logG.innerHTML = lines.join("");
+      now.textContent = (k + 1) + ". " + (s.clock ? "[" + s.clock + "] " : "") + s.title;
+      items.forEach((li, i) => li.className = i < k ? "done" : i === k ? "cur" : "");
+    }
+    if (done !== shownDone) {
+      shownDone = done;
+      C.result.forEach(([, value, kind], i) => { stats[i].textContent = done ? value : "–"; stats[i].className = done && kind ? "k-" + kind : ""; });
+    }
+  }
+  return { root, draw, reset() { shownK = -1; shownDone = null; } };
+});
+
+window.draw = (t) => cards.forEach((c) => { if (!c.root.hidden) c.draw(t); });
+function show() {
+  scnButtons.forEach((b) => b.setAttribute("aria-pressed", b.dataset.scnBtn === scn));
+  scnLead.textContent = D.scn[scn].lead;
+  cards.forEach((c) => { c.root.hidden = c.root.dataset.scn !== scn; c.reset(); });
+}
+function setScn(next) {
+  scn = next; show();
+  const slider = document.querySelector("[data-time]"); slider.value = 0; slider.dispatchEvent(new Event("input"));
+  document.querySelector("[data-play]").click();
+}
+scnButtons.forEach((b) => b.addEventListener("click", () => setScn(b.dataset.scnBtn)));
+show();
+
+// ?check: 모든 장면 · 모든 단계를 그려 보며 글자가 상자 밖으로 나가거나 다른 글자와 겹치면 console.error 로 알린다.
+if (params.has("check")) {
+  let problems = 0;
+  const inside = (r, x, y) => x >= r.x - 0.5 && x <= r.x + r.width + 0.5 && y >= r.y - 0.5 && y <= r.y + r.height + 0.5;
+  for (const key of Object.keys(D.scn)) {
+    scn = key; show();
+    for (const c of cards.filter((c) => !c.root.hidden)) {
+      const C = D.cards[c.root.dataset.card];
+      for (let k = 0; k < C.stages.length; k++) {
+        c.draw(k * D.stageSeconds + 0.01);
+        const svg = c.root.querySelector("svg");
+        const boxes = [...svg.querySelectorAll("rect.box, rect.lane")].map((e) => e.getBBox());
+        const texts = [...svg.querySelectorAll("text")].filter((t) => t.textContent.trim() && t.closest("[visibility=hidden]") === null && t.getAttribute("visibility") !== "hidden").map((t) => ({ t, b: t.getBBox() }));
+        const where = c.root.dataset.card + " 단계 " + (k + 1);
+        for (const { t, b } of texts) {
+          if (t.closest(".fl")) continue;
+          const own = boxes.filter((r) => inside(r, b.x + 1, b.y + b.height / 2)).sort((p, q) => p.width * p.height - q.width * q.height)[0];
+          // 상자 오른쪽 테두리 안쪽으로 4px 여백을 남겨야 한다. 테두리에 닿으면 넘친 것처럼 보인다.
+          if (own && b.x + b.width > own.x + own.width - 4) { problems++; console.error("넘침", where, JSON.stringify(t.textContent)); }
+        }
+        // 화살표 이름표가 다른 글자를 가리면 안 된다
+        const pills = [...svg.querySelectorAll(".fl")].filter((g) => g.getAttribute("visibility") !== "hidden").map((g) => ({ g, b: g.querySelector("rect").getBBox() }));
+        for (const { g, b: p } of pills) for (const { t, b: q } of texts) {
+          if (t.closest(".fl")) continue;
+          if (p.x < q.x + q.width - 0.5 && q.x < p.x + p.width - 0.5 && p.y < q.y + q.height - 1 && q.y < p.y + p.height - 1) {
+            problems++; console.error("가림", where, JSON.stringify(g.textContent), JSON.stringify(t.textContent));
+          }
+        }
+        for (let i = 0; i < pills.length; i++) for (let j = i + 1; j < pills.length; j++) {
+          const p = pills[i].b, q = pills[j].b;
+          if (p.x < q.x + q.width && q.x < p.x + p.width && p.y < q.y + q.height && q.y < p.y + p.height) {
+            problems++; console.error("이름표 겹침", where, JSON.stringify(pills[i].g.textContent), JSON.stringify(pills[j].g.textContent));
+          }
+        }
+        for (let i = 0; i < texts.length; i++) for (let j = i + 1; j < texts.length; j++) {
+          const p = texts[i].b, q = texts[j].b;
+          if (p.x < q.x + q.width - 0.5 && q.x < p.x + p.width - 0.5 && p.y < q.y + q.height - 1 && q.y < p.y + p.height - 1) {
+            problems++; console.error("겹침", where, JSON.stringify(texts[i].t.textContent), JSON.stringify(texts[j].t.textContent));
+          }
+        }
+      }
+    }
+  }
+  console.warn("check done, problems: " + problems);
+}
+
+(() => {
+const SECONDS = 13.200000000000001;
+const slider = document.querySelector("[data-time]"), clock = document.querySelector("[data-clock]"), play = document.querySelector("[data-play]");
+const speeds = [...document.querySelectorAll("[data-speed]")];
+let t = 0, playing = true, speed = 1, last = null, hold = 0;
+const params = new URLSearchParams(location.search);
+if (params.has("t")) { t = Number(params.get("t")); playing = false; }
+if (matchMedia("(prefers-reduced-motion: reduce)").matches && !params.has("t")) { t = 13.000000000000002; playing = false; }
+function render() { window.draw(t); slider.value = t; clock.textContent = t.toFixed(2) + "초"; play.textContent = playing ? "❚❚ 멈춤" : "▶ 재생"; }
+function frame(now) {
+  if (last !== null && playing && !document.hidden) {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    if (t >= SECONDS) { hold += dt; if (hold > 1.5) { t = 0; hold = 0; } }
+    else t = Math.min(SECONDS, t + dt * speed);
+    render();
+  }
+  last = now; requestAnimationFrame(frame);
+}
+slider.max = SECONDS;
+slider.addEventListener("input", () => { t = Number(slider.value); playing = false; render(); });
+play.addEventListener("click", () => { if (t >= SECONDS) t = 0; playing = !playing; render(); });
+speeds.forEach((b) => b.addEventListener("click", () => { speed = Number(b.dataset.speed); speeds.forEach((x) => x.setAttribute("aria-pressed", x === b)); playing = true; render(); }));
+document.addEventListener("keydown", (e) => {
+  if (e.key === " ") { e.preventDefault(); play.click(); }
+  if (e.key === "ArrowRight" || e.key === "ArrowLeft") { t = Math.max(0, Math.min(SECONDS, t + (e.key === "ArrowRight" ? 1.6 : -1.6))); playing = false; render(); }
+});
+render(); requestAnimationFrame(frame);
+})();
+</script>
+</main></body></html>

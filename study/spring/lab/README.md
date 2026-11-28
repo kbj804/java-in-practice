@@ -17,6 +17,7 @@
 | [step03-transactional-outbox](step03-transactional-outbox) | 커밋 후 이벤트 유실을 outbox + SKIP LOCKED 릴레이로 막기 | [Spring 04](../04-transactional-outbox.md) | [글 저장과 메시지 보내기](../figures/step03-transactional-outbox) |
 | [step04-rabbitmq-inbox](step04-rabbitmq-inbox) | RabbitMQ 로 받은 이벤트를 inbox(유니크 키 + 리스 + 스케줄러)로 한 번만 처리 | [Spring 05](../05-rabbitmq-inbox.md) | [같은 메시지가 두 번 와도](../figures/step04-rabbitmq-inbox) |
 | step05 (코드 없음) | 재시도 설계: 리스 부등식 · 호출 타임아웃 · 지수 백오프 · `next_attempt_at` · 펜싱 토큰 · 만료. 구현은 Resilience4j 단계에서 | [Spring 06](../06-retry-lease-fencing.md) | [느린 FCM, 장애, 늦게 돌아온 워커](../figures/step05-retry-lease-fencing) |
+| [step06-valkey-cache](step06-valkey-cache) | 동네 최신 글 목록을 Valkey 에: ID 목록 + 글마다 요약, 이벤트로 지우기, single-flight(`SET NX PX`), 지연 이중 삭제, TTL 지터 | [Spring 07](../07-valkey-cache.md) | [동네 목록 캐시](../figures/step06-valkey-cache) |
 
 ## 두 단계 비교하기
 
@@ -24,6 +25,7 @@
 diff -r step01-post-api/src step02-connection-pool/src
 diff -r step02-connection-pool/src step03-transactional-outbox/src
 diff -r step03-transactional-outbox/src step04-rabbitmq-inbox/src
+diff -r step04-rabbitmq-inbox/src step06-valkey-cache/src
 ```
 
 IntelliJ에서는 두 폴더를 함께 선택하고 ⌘D(Compare Directories).
@@ -33,12 +35,13 @@ IntelliJ에서는 두 폴더를 함께 선택하고 ⌘D(Compare Directories).
 이 폴더(`study/spring/lab`)에서 실행합니다. JDK 21과 Docker가 필요합니다.
 
 ```bash
-docker compose up -d                       # 로컬 Postgres (127.0.0.1:5433), RabbitMQ (127.0.0.1:5673, 관리 화면 :15673). 단계마다 스키마가 따로(step01, step02 …)
+docker compose up -d                       # 로컬 Postgres (127.0.0.1:5433), RabbitMQ (127.0.0.1:5673, 관리 화면 :15673), Valkey (127.0.0.1:6380). 단계마다 스키마가 따로(step01, step02 …)
 ./gradlew :step01-post-api:bootRun         # http://localhost:8080 (한 번에 한 단계만)
-./gradlew test                             # 모든 단계 테스트. Testcontainers로 별도 Postgres(step04 부터 RabbitMQ도)를 띄웁니다
+./gradlew test                             # 모든 단계 테스트. Testcontainers로 별도 Postgres(step04 부터 RabbitMQ, step06 부터 Valkey 도)를 띄웁니다
 ./gradlew :step02-connection-pool:test --tests '*PoolExhaustion*' -i | grep 실험
 ./gradlew :step03-transactional-outbox:test --tests '*EventDelivery*' -i | grep 실험
 ./gradlew :step04-rabbitmq-inbox:test --tests '*NotificationInbox*' -i | grep 실험
+./gradlew :step06-valkey-cache:test --tests '*FeedCache*' -i | grep 실험
 ```
 
 ```bash
@@ -69,6 +72,18 @@ docker exec spring-lab-postgres psql -U community -d community \
   -c "select state, count(*) from step04.notification_delivery group by state"   # completed 1000
 ```
 
+step06 에서 동네 목록이 캐시에서 나오는 것 보기:
+
+```bash
+./gradlew :step06-valkey-cache:bootRun
+curl -XPOST localhost:8080/posts -H 'content-type: application/json' \
+  -d '{"authorId":1,"regionId":42,"content":"나눔합니다","title":"상추 나눔햇어요"}'
+curl localhost:8080/regions/42/feed                                       # 처음엔 DB 에서 만들어 Valkey 에 넣음
+docker exec spring-lab-valkey valkey-cli zrevrange region:42:latest 0 -1  # 글 ID (와 표시용 0)
+curl -XPATCH localhost:8080/posts/1 -H 'content-type: application/json' -d '{"title":"상추 나눔했어요"}'
+curl localhost:8080/regions/42/feed                                       # 1~2초 뒤 새 제목 (릴레이 1초 주기 → 이벤트가 post:1 을 지움)
+```
+
 ## 그림 다시 만들기
 
 ```bash
@@ -77,4 +92,4 @@ node ../figures/step01-request-flow/build.mjs   # → index.html, index-light.ht
 
 공통 페이지 틀과 색은 [`../figures/page.mjs`](../figures/page.mjs)에 있습니다.
 
-스택: JDK 21 (Temurin), Kotlin 2.4, Spring Boot 4.2, PostgreSQL 17, RabbitMQ 4.1, Flyway, Testcontainers 2
+스택: JDK 21 (Temurin), Kotlin 2.4, Spring Boot 4.2, PostgreSQL 17, RabbitMQ 4.1, Valkey 8.1, Flyway, Testcontainers 2
