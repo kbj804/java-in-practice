@@ -16,6 +16,7 @@
 | [step02-connection-pool](step02-connection-pool) | 트랜잭션 안의 외부 호출로 커넥션 풀 고갈 | [Spring 02](../02-connection-pool.md) | [커넥션 풀 고갈](../figures/step02-connection-pool) |
 | [step03-transactional-outbox](step03-transactional-outbox) | 커밋 후 이벤트 유실을 outbox + SKIP LOCKED 릴레이로 막기 | [Spring 04](../04-transactional-outbox.md) | [글 저장과 메시지 보내기](../figures/step03-transactional-outbox) |
 | [step04-rabbitmq-inbox](step04-rabbitmq-inbox) | RabbitMQ 로 받은 이벤트를 inbox(유니크 키 + 리스 + 스케줄러)로 한 번만 처리 | [Spring 05](../05-rabbitmq-inbox.md) | [같은 메시지가 두 번 와도](../figures/step04-rabbitmq-inbox) |
+| step05 (코드 없음) | 재시도 설계: 리스 부등식 · 호출 타임아웃 · 지수 백오프 · `next_attempt_at` · 펜싱 토큰 · 만료. 구현은 Resilience4j 단계에서 | [Spring 06](../06-retry-lease-fencing.md) | [느린 FCM, 장애, 늦게 돌아온 워커](../figures/step05-retry-lease-fencing) |
 
 ## 두 단계 비교하기
 

@@ -22,6 +22,7 @@ Python(FastAPI)으로 백엔드를 해 온 개발자가 Java를 공부하면서 
 | Spring | [03. 동시 처리 상한이 없을 때: 타임아웃, 벌크헤드, 서킷 브레이커](study/spring/03-concurrency-limits.md) |
 | Spring | [04. 커밋 후 이벤트 유실과 Transactional Outbox](study/spring/04-transactional-outbox.md) |
 | Spring | [05. RabbitMQ 로 받은 이벤트를 두 번 처리하지 않기: inbox 와 리스](study/spring/05-rabbitmq-inbox.md) |
+| Spring | [06. 재시도와 리스: 느린 외부 API, 장애, 늦게 돌아온 워커, 너무 늦은 알림](study/spring/06-retry-lease-fencing.md) |
 | Spring 실습 | [단계별 Kotlin + Spring Boot 코드와 그림](study/spring/lab/README.md) |
 
 ### problems
